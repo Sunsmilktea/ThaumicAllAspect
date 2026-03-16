@@ -1,0 +1,16 @@
+[
+  {
+    "modid": "thaumicallaspect",
+    "name": "Thaumic All Aspect",
+    "description": "A Thaumcraft 4 addon that automatically assigns missing aspects to all items, blocks, fluids, and entities. Existing aspects from Thaumcraft and other mods are never overwritten. Supports recipe-based derivation, OreDictionary inheritance, type-based fallbacks, and keyword-based heuristics. Designed for GTNH and large modpacks.",
+    "version": "${modVersion}",
+    "mcversion": "1.7.10",
+    "url": "https://github.com/SunMilktea/ThaumicAllAspect",
+    "updateUrl": "",
+    "authorList": ["SunMilktea"],
+    "credits": "Built with the GTNH ExampleMod template",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": ["Thaumcraft", "Baubles"]
+  }
+]
