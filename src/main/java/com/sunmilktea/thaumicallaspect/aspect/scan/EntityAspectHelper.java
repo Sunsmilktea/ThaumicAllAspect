@@ -1,4 +1,4 @@
-package com.sunmilktea.thaumicallaspect.aspect;
+package com.sunmilktea.thaumicallaspect.aspect.scan;
 
 import static com.sunmilktea.thaumicallaspect.logging.ModI18n.tr;
 
@@ -58,11 +58,10 @@ import thaumcraft.api.aspects.AspectList;
  * 其真实战利品表，否则可能导致崩溃。覆盖了常见的原版生物原型。</li>
  * </ol>
  */
-public final class EntityAspectHelper {
+public enum EntityAspectHelper {
+    ;
 
     private static final Set<String> FAILED_ENTITY_IDS = new TreeSet<String>();
-
-    private EntityAspectHelper() {}
 
     /**
      * Generates an {@link AspectList} for the given entity class by applying three derivation
@@ -96,29 +95,30 @@ public final class EntityAspectHelper {
      *                    实体的字符串 ID（来自 EntityList），为 null 时使用类名
      * @return the derived aspects, or null if derivation failed / 推导出的要素，失败时返回 null
      */
-    public static AspectList getOrGenerateForEntity(Class<? extends EntityLivingBase> entityClass, String explicitId) {
-        if (entityClass == null) {
+    public static AspectList getOrGenerateForEntity(final Class<? extends EntityLivingBase> entityClass,
+        final String explicitId) {
+        if (null == entityClass) {
             return null;
         }
 
-        String entityId = (explicitId == null || explicitId.isEmpty()) ? entityClass.getName() : explicitId;
+        final String entityId = (null == explicitId || explicitId.isEmpty()) ? entityClass.getName() : explicitId;
 
-        AspectList aspects = new AspectList();
+        final AspectList aspects = new AspectList();
 
         // Non-monster living entities always get bestia >= 4
         if (!IMob.class.isAssignableFrom(entityClass)) {
-            Aspect bestia = Aspect.getAspect("bestia");
-            if (bestia != null) {
+            final Aspect bestia = Aspect.getAspect("bestia");
+            if (null != bestia) {
                 aspects.add(bestia, 4);
             }
         }
 
-        addAspectsByInheritance(entityClass, aspects);
-        addAspectsByType(entityClass, aspects);
-        addAspectsByDrops(entityClass, aspects);
+        EntityAspectHelper.addAspectsByInheritance(entityClass, aspects);
+        EntityAspectHelper.addAspectsByType(entityClass, aspects);
+        EntityAspectHelper.addAspectsByDrops(entityClass, aspects);
 
-        if (aspects.size() == 0) {
-            FAILED_ENTITY_IDS.add(entityId);
+        if (0 == aspects.size()) {
+            EntityAspectHelper.FAILED_ENTITY_IDS.add(entityId);
             ModFileLogger.debug(
                 "[ThaumicAllAspect] " + tr("Failed to derive aspects for entity, recording failed ID:")
                     + " "
@@ -133,19 +133,20 @@ public final class EntityAspectHelper {
      * Recursively traverses the entity's superclass chain and inherits aspects with 90% decay (keep 10%, min 1).
      * 递归遍历实体的父类链并以 90% 衰减继承要素（保留 10%，至少 1 点）。
      */
-    private static void addAspectsByInheritance(Class<? extends EntityLivingBase> entityClass, AspectList aspects) {
-        Class<?> superClass = entityClass.getSuperclass();
-        if (superClass != null && EntityLivingBase.class.isAssignableFrom(superClass)) {
+    private static void addAspectsByInheritance(final Class<? extends EntityLivingBase> entityClass,
+        final AspectList aspects) {
+        final Class<?> superClass = entityClass.getSuperclass();
+        if (null != superClass && EntityLivingBase.class.isAssignableFrom(superClass)) {
             @SuppressWarnings("unchecked")
-            Class<? extends EntityLivingBase> superLivingClass = (Class<? extends EntityLivingBase>) superClass;
-            AspectList superAspects = getOrGenerateForEntity(superLivingClass, null);
-            if (superAspects != null && superAspects.size() > 0) {
+            final Class<? extends EntityLivingBase> superLivingClass = (Class<? extends EntityLivingBase>) superClass;
+            final AspectList superAspects = EntityAspectHelper.getOrGenerateForEntity(superLivingClass, null);
+            if (null != superAspects && 0 < superAspects.size()) {
                 Aspect[] superAspArr = superAspects.getAspects();
-                if (superAspArr == null) superAspArr = new Aspect[0];
-                for (Aspect aspect : superAspArr) {
-                    if (aspect != null) {
-                        int amount = superAspects.getAmount(aspect);
-                        int scaledAmount = Math.max(1, Math.round(amount * 0.1f));
+                if (null == superAspArr) superAspArr = new Aspect[0];
+                for (final Aspect aspect : superAspArr) {
+                    if (null != aspect) {
+                        final int amount = superAspects.getAmount(aspect);
+                        final int scaledAmount = Math.max(1, Math.round(amount * 0.1f));
                         aspects.add(aspect, scaledAmount);
                     }
                 }
@@ -186,33 +187,34 @@ public final class EntityAspectHelper {
      * 最小阈值检查（如 {@code aspects.getAmount(water) < 2}）确保已由继承贡献的
      * 要素不会被更小的值覆盖。
      */
-    private static void addAspectsByType(Class<? extends EntityLivingBase> entityClass, AspectList aspects) {
+    private static void addAspectsByType(final Class<? extends EntityLivingBase> entityClass,
+        final AspectList aspects) {
         if (EntityWaterMob.class.isAssignableFrom(entityClass)) {
-            Aspect water = Aspect.getAspect("aqua");
-            if (water != null && aspects.getAmount(water) < 2) {
+            final Aspect water = Aspect.getAspect("aqua");
+            if (null != water && 2 > aspects.getAmount(water)) {
                 aspects.add(water, 2);
             }
         } else if (EntityAnimal.class.isAssignableFrom(entityClass)) {
-            Aspect earth = Aspect.getAspect("terra");
-            if (earth != null && aspects.getAmount(earth) < 2) {
+            final Aspect earth = Aspect.getAspect("terra");
+            if (null != earth && 2 > aspects.getAmount(earth)) {
                 aspects.add(earth, 2);
             }
         } else if (IBossDisplayData.class.isAssignableFrom(entityClass)) {
-            Aspect power = Aspect.getAspect("potentia");
-            if (power != null && aspects.getAmount(power) < 4) {
+            final Aspect power = Aspect.getAspect("potentia");
+            if (null != power && 4 > aspects.getAmount(power)) {
                 aspects.add(power, 4);
             }
-            Aspect chaos = Aspect.getAspect("perditio");
-            if (chaos != null && aspects.getAmount(chaos) < 2) {
+            final Aspect chaos = Aspect.getAspect("perditio");
+            if (null != chaos && 2 > aspects.getAmount(chaos)) {
                 aspects.add(chaos, 2);
             }
         } else if (IMob.class.isAssignableFrom(entityClass)) {
-            Aspect chaos = Aspect.getAspect("perditio");
-            if (chaos != null && aspects.getAmount(chaos) < 3) {
+            final Aspect chaos = Aspect.getAspect("perditio");
+            if (null != chaos && 3 > aspects.getAmount(chaos)) {
                 aspects.add(chaos, 3);
             }
-            Aspect death = Aspect.getAspect("mortuus");
-            if (death != null && aspects.getAmount(death) < 2) {
+            final Aspect death = Aspect.getAspect("mortuus");
+            if (null != death && 2 > aspects.getAmount(death)) {
                 aspects.add(death, 2);
             }
         }
@@ -242,31 +244,32 @@ public final class EntityAspectHelper {
      * <li>spider / creeper → {@code venenum}（毒素/爆炸相关生物）</li>
      * </ul>
      */
-    private static void addAspectsByDrops(Class<? extends EntityLivingBase> entityClass, AspectList aspects) {
-        String className = entityClass.getSimpleName()
+    private static void addAspectsByDrops(final Class<? extends EntityLivingBase> entityClass,
+        final AspectList aspects) {
+        final String className = entityClass.getSimpleName()
             .toLowerCase();
 
         if (className.contains("cow") || className.contains("sheep")
             || className.contains("pig")
             || className.contains("chicken")) {
-            Aspect food = Aspect.getAspect("fames");
-            if (food != null && aspects.getAmount(food) < 2) {
+            final Aspect food = Aspect.getAspect("fames");
+            if (null != food && 2 > aspects.getAmount(food)) {
                 aspects.add(food, 2);
             }
         } else if (className.contains("skeleton") || className.contains("zombie")) {
-            Aspect death = Aspect.getAspect("mortuus");
-            if (death != null && aspects.getAmount(death) < 3) {
+            final Aspect death = Aspect.getAspect("mortuus");
+            if (null != death && 3 > aspects.getAmount(death)) {
                 aspects.add(death, 3);
             }
         } else if (className.contains("spider") || className.contains("creeper")) {
-            Aspect poison = Aspect.getAspect("venenum");
-            if (poison != null && aspects.getAmount(poison) < 2) {
+            final Aspect poison = Aspect.getAspect("venenum");
+            if (null != poison && 2 > aspects.getAmount(poison)) {
                 aspects.add(poison, 2);
             }
         }
     }
 
     public static Set<String> getFailedEntityIdsSnapshot() {
-        return Collections.unmodifiableSet(FAILED_ENTITY_IDS);
+        return Collections.unmodifiableSet(EntityAspectHelper.FAILED_ENTITY_IDS);
     }
 }

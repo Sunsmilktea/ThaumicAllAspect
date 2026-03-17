@@ -11,9 +11,9 @@ import net.minecraft.entity.EntityList;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraftforge.common.config.Configuration;
 
-import com.sunmilktea.thaumicallaspect.aspect.AspectUtils;
-import com.sunmilktea.thaumicallaspect.aspect.EntityAspectHelper;
-import com.sunmilktea.thaumicallaspect.aspect.ItemBlockAspectHelper;
+import com.sunmilktea.thaumicallaspect.aspect.derive.AspectUtils;
+import com.sunmilktea.thaumicallaspect.aspect.scan.EntityAspectHelper;
+import com.sunmilktea.thaumicallaspect.aspect.scan.ItemBlockAspectHelper;
 import com.sunmilktea.thaumicallaspect.logging.ModFileLogger;
 
 import cpw.mods.fml.common.Mod;
@@ -40,7 +40,7 @@ import thaumcraft.api.aspects.AspectList;
  *
  * <p>
  * Item/block scanning is delegated to {@link ItemBlockAspectHelper}, which acts as a
- * façade over {@link com.sunmilktea.thaumicallaspect.aspect.AspectScanner AspectScanner}.
+ * façade over {@link com.sunmilktea.thaumicallaspect.aspect.scan.AspectScanner AspectScanner}.
  *
  * <p>
  * Entity scanning iterates {@link EntityList#stringToClassMapping}, filtering for
@@ -64,7 +64,7 @@ import thaumcraft.api.aspects.AspectList;
  *
  * <p>
  * 物品/方块扫描委托给 {@link ItemBlockAspectHelper}，它是
- * {@link com.sunmilktea.thaumicallaspect.aspect.AspectScanner AspectScanner} 的外观类。
+ * {@link com.sunmilktea.thaumicallaspect.aspect.scan.AspectScanner AspectScanner} 的外观类。
  *
  * <p>
  * 实体扫描遍历 {@link EntityList#stringToClassMapping}，仅处理
@@ -92,7 +92,15 @@ public class ThaumicAllAspect {
 
     @EventHandler
     public void preInit(FMLPreInitializationEvent event) {
-        File cfgFile = event.getSuggestedConfigurationFile();
+        // Place all ThaumicAllAspect configs under config/ThaumicAllAspect/ to avoid clutter.
+        // 将所有 ThaumicAllAspect 配置统一放在 config/ThaumicAllAspect/ 目录下，避免散落在外。
+        File baseConfigDir = event.getModConfigurationDirectory();
+        File modConfigDir = new File(baseConfigDir, "ThaumicAllAspect");
+        if (!modConfigDir.exists()) {
+            // noinspection ResultOfMethodCallIgnored
+            modConfigDir.mkdirs();
+        }
+        File cfgFile = new File(modConfigDir, "thaumicallaspect.cfg");
         if (cfgFile != null) {
             Configuration cfg = new Configuration(cfgFile);
             cfg.load();

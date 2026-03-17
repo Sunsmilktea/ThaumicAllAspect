@@ -1,10 +1,26 @@
-package com.sunmilktea.thaumicallaspect.aspect;
+package com.sunmilktea.thaumicallaspect.aspect.scan;
 
 import static com.sunmilktea.thaumicallaspect.logging.ModI18n.tr;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 
 import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
@@ -17,6 +33,11 @@ import net.minecraftforge.fluids.Fluid;
 import net.minecraftforge.fluids.FluidRegistry;
 import net.minecraftforge.oredict.OreDictionary;
 
+import com.sunmilktea.thaumicallaspect.aspect.derive.AspectDeriver;
+import com.sunmilktea.thaumicallaspect.aspect.derive.AspectUtils;
+import com.sunmilktea.thaumicallaspect.aspect.modbridge.ModRecipeBridge;
+import com.sunmilktea.thaumicallaspect.aspect.modbridge.NEIRecipeAdapter;
+import com.sunmilktea.thaumicallaspect.config.FallbackConfig;
 import com.sunmilktea.thaumicallaspect.logging.ModFileLogger;
 
 import thaumcraft.api.ThaumcraftApi;
@@ -80,9 +101,12 @@ import thaumcraft.api.crafting.InfusionRecipe;
  * 统计数据、记录失败项、将完整要素缓存导出到磁盘。</li>
  * </ol>
  */
-public final class AspectScanner {
+public enum AspectScanner {
+    ;
 
-    private AspectScanner() {}
+    private static final File VERIFY_CONFIG = new File("config/ThaumicAllAspect", "verify.cfg");
+
+    // ==================== User-defined Verification / 用户自定义验证 ====================
 
     /**
      * Entry point: runs the full aspect scanning pipeline.
@@ -119,21 +143,58 @@ public final class AspectScanner {
         AspectUtils.statNewlyRegistered = 0;
         AspectUtils.statNoAspect = 0;
 
-        long tGlobal = System.currentTimeMillis();
+        final long tGlobal = System.currentTimeMillis();
         ModFileLogger.info("========== [ThaumicAllAspect] " + tr("Starting full scan") + " ==========");
         ModFileLogger.beginScanLog();
 
-        // Load aspect cache from config so server can have full aspects (e.g. Botania) without reflecting mods
-        File configCache = new File("config", "ThaumicAllAspect-aspect-cache.cfg");
-        if (configCache.isFile()) {
-            int n = AspectUtils.loadAspectCacheFromFile(configCache);
-            if (n > 0) ModFileLogger.info("[ThaumicAllAspect] Loaded " + n + " aspect entries from config cache.");
+        // All ThaumicAllAspect configs now live under config/ThaumicAllAspect/
+        final File configDir = new File("config", "ThaumicAllAspect");
+        if (!configDir.exists()) {
+            // Best-effort directory creation; failure just means we fall back to old behaviour.
+            // 尽力创建配置目录；失败时仅意味着回退到旧行为。
+            // noinspection ResultOfMethodCallIgnored
+            configDir.mkdirs();
         }
 
-        buildOreDictIndex();
-        buildCraftingRecipeIndex();
-        buildFurnaceIndex();
-        buildTCRecipeIndex();
+        // Load aspect cache from config so server can have full aspects (e.g. Botania) without reflecting mods.
+        // When an aspect cache is present, we treat it as authoritative and skip the expensive full recomputation;
+        // deleting the cache file is what triggers a fresh scan.
+        // 当存在要素缓存文件时，将其视为权威数据并跳过昂贵的完整重算；
+        // 只有删除该缓存文件时，才会重新执行完整扫描。
+        final File configCache = new File(configDir, "aspect-cache.cfg");
+        if (configCache.isFile()) {
+            final int n = AspectUtils.loadAspectCacheFromFile(configCache);
+            if (0 < n) {
+                ModFileLogger.info(
+                    "[ThaumicAllAspect] Loaded " + n
+                        + " aspect entries from config cache (config/ThaumicAllAspect/aspect-cache.cfg).");
+            }
+            // Apply user item/fluid fallbacks on top of cache (config/ThaumicAllAspect/item-fallback.cfg)
+            FallbackConfig.load(configDir);
+            FallbackConfig.applyItemFallbacksToCache();
+            AspectScanner.runVerifyFromConfig();
+
+            final long totalMs = System.currentTimeMillis() - tGlobal;
+            final String doneMsg = "========== [ThaumicAllAspect] " + tr("Full scan complete, total time")
+                + " "
+                + totalMs
+                + " ms (cache only) ==========";
+            ModFileLogger.info(doneMsg);
+            ModFileLogger.scanSummary(doneMsg);
+            ModFileLogger.endScanLog();
+            return;
+        }
+
+        AspectScanner.buildOreDictIndex();
+        // Load user fallbacks (keyword + item/block/fluid) from config/ThaumicAllAspect/
+        FallbackConfig.load(configDir);
+        FallbackConfig.applyItemFallbacksToCache();
+        // Prefer NEI as recipe source when loaded (mod acts as NEI addon); otherwise vanilla indices.
+        if (!NEIRecipeAdapter.fillFromNEI()) {
+            AspectScanner.buildCraftingRecipeIndex();
+            AspectScanner.buildFurnaceIndex();
+        }
+        AspectScanner.buildTCRecipeIndex();
 
         // --- Phase 2: Collect all items/blocks, grouped by mod ID ---
         // --- 第 2 阶段：收集所有物品/方块，按模组 ID 分组 ---
@@ -151,36 +212,36 @@ public final class AspectScanner {
         // scan order — this makes logs diffable across runs and easier to debug.
         // LinkedHashSet 保持插入顺序并去重（两个注册表中的同一 Item 只保留一次）。
         // TreeMap 按模组 ID 字母排序以确保扫描顺序确定且可复现 —— 这使日志在不同运行间可比较，更易调试。
-        Set<Item> allItems = new LinkedHashSet<>();
-        TreeMap<String, List<Item>> modItemMap = new TreeMap<>();
+        final Set<Item> allItems = new LinkedHashSet<>();
+        final TreeMap<String, List<Item>> modItemMap = new TreeMap<>();
 
-        for (Object o : Item.itemRegistry) {
-            Item item = (Item) o;
-            if (item == null) continue;
+        for (final Object o : Item.itemRegistry) {
+            final Item item = (Item) o;
+            if (null == item) continue;
             allItems.add(item);
         }
-        for (Object o : Block.blockRegistry) {
-            Block block = (Block) o;
-            if (block == null || block == Blocks.air) continue;
-            Item item = Item.getItemFromBlock(block);
-            if (item != null) allItems.add(item);
+        for (final Object o : Block.blockRegistry) {
+            final Block block = (Block) o;
+            if (null == block || block == Blocks.air) continue;
+            final Item item = Item.getItemFromBlock(block);
+            if (null != item) allItems.add(item);
         }
 
-        for (Item item : allItems) {
-            Object nameObj = Item.itemRegistry.getNameForObject(item);
-            if (nameObj == null) continue;
-            String regName = nameObj.toString();
-            String modId = regName.contains(":") ? regName.substring(0, regName.indexOf(':')) : "minecraft";
+        for (final Item item : allItems) {
+            final Object nameObj = Item.itemRegistry.getNameForObject(item);
+            if (null == nameObj) continue;
+            final String regName = nameObj.toString();
+            final String modId = regName.contains(":") ? regName.substring(0, regName.indexOf(':')) : "minecraft";
             List<Item> list = modItemMap.get(modId);
-            if (list == null) {
+            if (null == list) {
                 list = new ArrayList<>();
                 modItemMap.put(modId, list);
             }
             list.add(item);
         }
 
-        int totalItems = allItems.size();
-        int totalMods = modItemMap.size();
+        final int totalItems = allItems.size();
+        final int totalMods = modItemMap.size();
         ModFileLogger.info(
             tr("[Scan]") + " "
                 + tr("Registry total:")
@@ -193,77 +254,49 @@ public final class AspectScanner {
                 + " "
                 + tr("mods"));
 
-        // --- Phase 3: Pass 1 scan — iterate all items, derive aspects ---
-        // --- 第 3 阶段：第一轮扫描 — 遍历所有物品，推导要素 ---
-        //
-        // We do NOT skip any mod: vanilla (minecraft) and every other mod are scanned the same way.
-        // 不按模组跳过：原版（minecraft）与所有模组一视同仁，全部参与扫描。
-        //
-        // For each item, we first discover all valid metadata values via getMetasToScan(), which
-        // unions metadata from: creative tabs, OreDict registrations, recipe outputs, and a
-        // fallback range of 0–15. This ensures we don't miss sub-items (e.g., wood planks meta 0–5).
-        // 对于每个物品，我们首先通过 getMetasToScan() 发现所有有效的 metadata 值，
-        // 它合并了来自创造模式标签页、矿辞注册、配方输出和 0–15 回退范围的 metadata。
-        // 这确保我们不会遗漏子物品（如木板 meta 0–5）。
-        //
-        // The ONLY skip is: Thaumcraft has already registered non-empty aspects for that stack.
-        // 唯一的跳过条件：该物品在神秘时代中已注册且要素列表非空。
-        //
-        // Items that already have TC aspects (checked by hasAspect) are SKIPPED to avoid overwriting
-        // hand-authored or mod-provided aspect assignments. This is a critical design choice:
-        // we only fill gaps, never clobber existing data.
-        // 已有 TC 要素的物品（通过 hasAspect 检查）会被跳过，以避免覆盖手动编写或模组提供的要素分配。
-        // 这是一个关键设计决策：我们只填补空白，绝不覆盖已有数据。
-        //
-        // Each successful derivation is IMMEDIATELY registered via ThaumcraftApi.registerObjectTag,
-        // so that subsequent items in the same pass can reference newly derived aspects in their
-        // recipe-based derivation (forward dependency resolution within a single pass).
-        // 每次成功推导后立即通过 ThaumcraftApi.registerObjectTag 注册，
-        // 这样同一轮中后续物品可以在基于配方的推导中引用新推导出的要素（单轮内的前向依赖解析）。
-        //
-        // Items that fail derivation (null or empty AspectList) are collected into pass1Failed
-        // for the multi-pass retry phase, where they get another chance after more aspects
-        // become available in the system.
-        // 推导失败（null 或空 AspectList）的物品被收集到 pass1Failed 中，
-        // 留给多轮重试阶段，在系统中有更多要素可用后它们会获得再次机会。
-        List<ItemStack> pass1Failed = new ArrayList<>();
+        // --- Phase 3a: Recipe-first pipeline (up to 8 rounds) — no cache path only ---
+        // 无缓存时才执行：先按配方迭代最多 8 轮，为所有「输入已齐」的配方产出赋源质。
+        RecipeFirstAspectPipeline.run();
+
+        // --- Phase 3b: Single item pass — fill remaining via OreDict / type / keyword fallback ---
+        // 再遍历一遍物品：已有要素的跳过；仍未有的用 OreDict / 类型 / 关键词兜底推导。
+        final List<ItemStack> pass1Failed = new ArrayList<>();
         int modIndex = 0;
-        for (Map.Entry<String, List<Item>> modEntry : modItemMap.entrySet()) {
+        for (final Map.Entry<String, List<Item>> modEntry : modItemMap.entrySet()) {
             modIndex++;
-            String modId = modEntry.getKey();
-            List<Item> items = modEntry.getValue();
+            final String modId = modEntry.getKey();
+            final List<Item> items = modEntry.getValue();
             int modReg = 0, modSkip = 0, modFail = 0;
 
-            for (Item item : items) {
-                String id;
+            for (final Item item : items) {
+                final String id;
                 try {
-                    id = Item.itemRegistry.getNameForObject(item)
-                        .toString();
-                } catch (Exception e) {
+                    id = Item.itemRegistry.getNameForObject(item);
+                } catch (final Exception e) {
                     continue;
                 }
                 boolean hasAny = false;
 
-                Set<Integer> metas;
+                final Set<Integer> metas;
                 try {
                     metas = AspectUtils.getMetasToScan(item);
-                } catch (Exception e) {
+                } catch (final Exception e) {
                     ModFileLogger
                         .scan(tr("[Error]") + " " + id + " " + tr("failed to get metas:") + " " + e.getMessage());
                     continue;
                 }
 
-                for (int meta : metas) {
+                for (final int meta : metas) {
                     try {
-                        ItemStack stack = new ItemStack(item, 1, meta);
+                        final ItemStack stack = new ItemStack(item, 1, meta);
 
                         // Check TC registration and pre-populate CACHE in one step
                         // (avoids calling getObjectAspects twice — once in hasAspect, once for cache).
                         // 一步完成 TC 注册检查和缓存预填充
                         // （避免调用两次 getObjectAspects——hasAspect 中一次，缓存一次）。
                         if (ThaumcraftApi.exists(stack.getItem(), stack.getItemDamage())) {
-                            AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
-                            if (existing != null && existing.size() > 0) {
+                            final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
+                            if (null != existing && 0 < existing.size()) {
                                 AspectUtils.CACHE.put(AspectUtils.key(stack), existing.copy());
                                 hasAny = true;
                                 AspectUtils.statAlreadyHad++;
@@ -273,13 +306,14 @@ public final class AspectScanner {
                         }
 
                         AspectUtils.lastDerivePath = "";
-                        AspectList aspects = AspectDeriver.getOrGenerateAspectsFor(stack, 0, new HashSet<String>());
-                        if (aspects != null && aspects.size() > 0) {
-                            String aspectStr = AspectUtils.aspectListToString(aspects);
+                        final AspectList aspects = AspectDeriver
+                            .getOrGenerateAspectsFor(stack, 0, new HashSet<String>());
+                        if (null != aspects && 0 < aspects.size()) {
+                            final String aspectStr = AspectUtils.aspectListToString(aspects);
                             String displayName;
                             try {
                                 displayName = stack.getDisplayName();
-                            } catch (Exception e) {
+                            } catch (final Exception e) {
                                 displayName = "?";
                             }
                             ThaumcraftApi.registerObjectTag(stack, aspects.copy());
@@ -309,7 +343,7 @@ public final class AspectScanner {
                                     + " <- "
                                     + tr("no aspects derived in pass 1"));
                         }
-                    } catch (Exception e) {
+                    } catch (final Exception e) {
                         ModFileLogger.scan(
                             tr("[Crash]") + " "
                                 + id
@@ -329,7 +363,7 @@ public final class AspectScanner {
                 }
             }
 
-            String modSummary = tr("[Scan]") + " ("
+            final String modSummary = tr("[Scan]") + " ("
                 + modIndex
                 + "/"
                 + totalMods
@@ -385,10 +419,10 @@ public final class AspectScanner {
         //
         // Stops early if a pass produces zero new registrations — this means we've reached a
         // fixed point where no further progress is possible (remaining items are truly underivable).
-        // Maximum 5 retry passes handles deeply nested dependency chains ("套娃配方").
-        // 如果某轮未产生新注册则提前停止 —— 这意味着已到达不动点，无法取得更多进展（剩余物品确实无法推导）。
-        // 最多 5 轮重试可处理深层嵌套的依赖链（"套娃配方"）。
-        int maxRetryPasses = 5;
+        // After recipe-first 8-round pipeline, most dependencies are resolved; 2 retries suffice for fallback-only
+        // chains.
+        // 配方优先 8 轮后多数依赖已解决；2 轮重试足以覆盖仅靠兜底的链。
+        final int maxRetryPasses = 2;
         List<ItemStack> retryList = pass1Failed;
 
         for (int pass = 2; pass <= maxRetryPasses + 1 && !retryList.isEmpty(); pass++) {
@@ -425,25 +459,24 @@ public final class AspectScanner {
                     + tr("items")
                     + " ==========");
 
-            List<ItemStack> stillFailed = new ArrayList<>();
+            final List<ItemStack> stillFailed = new ArrayList<>();
             int passReg = 0, passFail = 0;
 
-            for (ItemStack stack : retryList) {
-                String id;
+            for (final ItemStack stack : retryList) {
+                final String id;
                 try {
-                    id = Item.itemRegistry.getNameForObject(stack.getItem())
-                        .toString();
-                } catch (Exception e) {
+                    id = Item.itemRegistry.getNameForObject(stack.getItem());
+                } catch (final Exception e) {
                     continue;
                 }
-                int meta = stack.getItemDamage();
+                final int meta = stack.getItemDamage();
 
                 try {
                     // Re-check: item may have been registered by a previous pass
                     // 重新检查：物品可能已在之前的轮次中被注册
                     if (ThaumcraftApi.exists(stack.getItem(), stack.getItemDamage())) {
-                        AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
-                        if (existing != null && existing.size() > 0) {
+                        final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
+                        if (null != existing && 0 < existing.size()) {
                             AspectUtils.CACHE.put(AspectUtils.key(stack), existing.copy());
                             passReg++;
                             AspectUtils.statAlreadyHad++;
@@ -453,13 +486,13 @@ public final class AspectScanner {
                     }
 
                     AspectUtils.lastDerivePath = "";
-                    AspectList aspects = AspectDeriver.getOrGenerateAspectsFor(stack, 0, new HashSet<String>());
-                    if (aspects != null && aspects.size() > 0) {
-                        String aspectStr = AspectUtils.aspectListToString(aspects);
+                    final AspectList aspects = AspectDeriver.getOrGenerateAspectsFor(stack, 0, new HashSet<String>());
+                    if (null != aspects && 0 < aspects.size()) {
+                        final String aspectStr = AspectUtils.aspectListToString(aspects);
                         String displayName;
                         try {
                             displayName = stack.getDisplayName();
-                        } catch (Exception e) {
+                        } catch (final Exception e) {
                             displayName = "?";
                         }
                         ThaumcraftApi.registerObjectTag(stack, aspects.copy());
@@ -486,7 +519,7 @@ public final class AspectScanner {
                         passFail++;
                         stillFailed.add(stack);
                     }
-                } catch (Exception e) {
+                } catch (final Exception e) {
                     passFail++;
                     stillFailed.add(stack);
                     ModFileLogger.scan(
@@ -506,7 +539,7 @@ public final class AspectScanner {
                 }
             }
 
-            String passSummary = tr("[Pass") + " "
+            final String passSummary = tr("[Pass") + " "
                 + pass
                 + "] "
                 + tr("Done:")
@@ -528,8 +561,8 @@ public final class AspectScanner {
             ModFileLogger.info(passSummary);
             ModFileLogger.scanSummary(passSummary);
 
-            if (passReg == 0) {
-                String stopMsg = tr("[Retry]") + " " + tr("No new registrations this pass, stopping");
+            if (0 == passReg) {
+                final String stopMsg = tr("[Retry]") + " " + tr("No new registrations this pass, stopping");
                 ModFileLogger.info(stopMsg);
                 ModFileLogger.scanSummary(stopMsg);
                 break;
@@ -557,7 +590,7 @@ public final class AspectScanner {
         // 1. deriveFluidFromMaterial — 基于矿辞的熔融金属智能推导
         // （如流体 "gold" → 查找 "ingotGold" → 从金锭要素推导）
         // 2. 标准 getOrGenerateAspectsFor 推导链作为回退
-        scanFluids();
+        AspectScanner.scanFluids();
 
         // --- Phase 6: Mod-specific recipe scanning ---
         // --- 第 6 阶段：模组自定义配方扫描 ---
@@ -578,20 +611,20 @@ public final class AspectScanner {
         // 重新检查每个失败 ID，如果现在有要素则移除。同时更新这些物品的缓存。
         {
             int recovered = 0;
-            Iterator<String> failIter = AspectUtils.FAILED_IDS.iterator();
+            final Iterator<String> failIter = AspectUtils.FAILED_IDS.iterator();
             while (failIter.hasNext()) {
-                String failedId = failIter.next();
+                final String failedId = failIter.next();
                 try {
                     if (failedId.startsWith("fluid:")) continue;
-                    Object itemObj = Item.itemRegistry.getObject(failedId);
+                    final Object itemObj = Item.itemRegistry.getObject(failedId);
                     if (!(itemObj instanceof Item)) continue;
-                    Item item = (Item) itemObj;
+                    final Item item = (Item) itemObj;
                     boolean found = false;
-                    for (int meta = 0; meta <= 15; meta++) {
-                        ItemStack stack = new ItemStack(item, 1, meta);
+                    for (int meta = 0; 15 >= meta; meta++) {
+                        final ItemStack stack = new ItemStack(item, 1, meta);
                         if (AspectUtils.hasAspect(stack)) {
-                            AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
-                            if (existing != null && existing.size() > 0) {
+                            final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
+                            if (null != existing && 0 < existing.size()) {
                                 AspectUtils.CACHE.put(AspectUtils.key(stack), existing.copy());
                             }
                             found = true;
@@ -602,10 +635,10 @@ public final class AspectScanner {
                         failIter.remove();
                         recovered++;
                     }
-                } catch (Exception ignored) {}
+                } catch (final Exception ignored) {}
             }
-            if (recovered > 0) {
-                String msg = tr("[Post-scan]") + " "
+            if (0 < recovered) {
+                final String msg = tr("[Post-scan]") + " "
                     + tr("Recovered")
                     + " "
                     + recovered
@@ -625,19 +658,19 @@ public final class AspectScanner {
         // 此补扫将有要素的 meta 传播到没有要素的 meta（无衰减）。
         {
             int metaFixed = 0;
-            Map<String, AspectList> bestByItem = new HashMap<>();
+            final Map<String, AspectList> bestByItem = new HashMap<>();
 
-            for (Map.Entry<String, AspectList> entry : AspectUtils.CACHE.entrySet()) {
-                String key = entry.getKey();
-                int atIdx = key.indexOf('@');
-                if (atIdx < 0) continue;
-                String baseName = key.substring(0, atIdx);
-                AspectList al = entry.getValue();
-                if (al == null || al.size() == 0) continue;
-                int score = AspectUtils.getAspectTotal(al);
+            for (final Map.Entry<String, AspectList> entry : AspectUtils.CACHE.entrySet()) {
+                final String key = entry.getKey();
+                final int atIdx = key.indexOf('@');
+                if (0 > atIdx) continue;
+                final String baseName = key.substring(0, atIdx);
+                final AspectList al = entry.getValue();
+                if (null == al || 0 == al.size()) continue;
+                final int score = AspectUtils.getAspectTotal(al);
 
-                AspectList existing = bestByItem.get(baseName);
-                if (existing == null || AspectUtils.getAspectTotal(existing) < score) {
+                final AspectList existing = bestByItem.get(baseName);
+                if (null == existing || AspectUtils.getAspectTotal(existing) < score) {
                     bestByItem.put(baseName, al.copy());
                 }
             }
@@ -645,25 +678,25 @@ public final class AspectScanner {
             // Iterate only over base names that have a donor (from CACHE). Same set of items get
             // donor applied as before (previously we skipped when donor==null); no behavior change.
             // 仅遍历有供体的 baseName，与原先“仅对 donor 非空时处理”等价，不改变功能。
-            for (Map.Entry<String, AspectList> entry : bestByItem.entrySet()) {
-                String name = entry.getKey();
-                AspectList donor = entry.getValue();
-                if (donor == null || donor.size() == 0) continue;
+            for (final Map.Entry<String, AspectList> entry : bestByItem.entrySet()) {
+                final String name = entry.getKey();
+                final AspectList donor = entry.getValue();
+                if (null == donor || 0 == donor.size()) continue;
 
-                Object itemObj = Item.itemRegistry.getObject(name);
+                final Object itemObj = Item.itemRegistry.getObject(name);
                 if (!(itemObj instanceof Item)) continue;
-                Item item = (Item) itemObj;
+                final Item item = (Item) itemObj;
 
                 Set<Integer> metas;
                 try {
                     metas = AspectUtils.getMetasToScan(item);
-                } catch (Exception e) {
+                } catch (final Exception e) {
                     metas = new HashSet<>();
                     metas.add(0);
                 }
 
-                for (int meta : metas) {
-                    ItemStack stack = new ItemStack(item, 1, meta);
+                for (final int meta : metas) {
+                    final ItemStack stack = new ItemStack(item, 1, meta);
                     if (AspectUtils.hasAspect(stack)) continue;
 
                     ThaumcraftApi.registerObjectTag(stack, donor.copy());
@@ -672,8 +705,8 @@ public final class AspectScanner {
                 }
             }
 
-            if (metaFixed > 0) {
-                String msg = tr("[Post-scan]") + " "
+            if (0 < metaFixed) {
+                final String msg = tr("[Post-scan]") + " "
                     + tr("Meta inheritance sweep: fixed")
                     + " "
                     + metaFixed
@@ -685,7 +718,7 @@ public final class AspectScanner {
         }
 
         // Summary statistics / 统计总结
-        String[] stats = { "", tr("[Stats]") + " ===== " + tr("Full scan summary") + " =====", tr(
+        final String[] stats = { "", tr("[Stats]") + " ===== " + tr("Full scan summary") + " =====", tr(
             "[Stats]") + " " + tr("Total items/blocks:") + " " + totalItems + " (" + totalMods + " " + tr("mods") + ")",
             tr("[Stats]") + " " + tr("Already had aspects (skipped):") + " " + AspectUtils.statAlreadyHad,
             tr("[Stats]") + " " + tr("Newly registered:") + " " + AspectUtils.statNewlyRegistered,
@@ -699,7 +732,7 @@ public final class AspectScanner {
                 + tr("Fully failed items (no meta has aspects):")
                 + " "
                 + AspectUtils.FAILED_IDS.size() };
-        for (String s : stats) {
+        for (final String s : stats) {
             ModFileLogger.info(s);
             ModFileLogger.scanSummary(s);
         }
@@ -709,7 +742,7 @@ public final class AspectScanner {
             ModFileLogger.scanSummary("");
             ModFileLogger
                 .scanSummary(tr("[Failures]") + " " + tr("The following items/blocks/fluids still have no aspects:"));
-            for (String id : AspectUtils.FAILED_IDS) {
+            for (final String id : AspectUtils.FAILED_IDS) {
                 ModFileLogger.warn(" - " + id);
                 ModFileLogger.scanSummary(" - " + id);
             }
@@ -720,13 +753,16 @@ public final class AspectScanner {
 
         // Dump aspect cache to file / 导出要素缓存文件
         ModFileLogger.writeCacheFile(AspectUtils.CACHE);
-        ModFileLogger.writeCacheFile(AspectUtils.CACHE, new File("config", "ThaumicAllAspect-aspect-cache.cfg"), false);
+        ModFileLogger.writeCacheFile(
+            AspectUtils.CACHE,
+            new File(new File("config", "ThaumicAllAspect"), "aspect-cache.cfg"),
+            false);
 
         // User-defined verification from config / 用户自定义验证（来自配置文件）
-        runVerifyFromConfig();
+        AspectScanner.runVerifyFromConfig();
 
-        long totalMs = System.currentTimeMillis() - tGlobal;
-        String doneMsg = "========== [ThaumicAllAspect] " + tr("Full scan complete, total time")
+        final long totalMs = System.currentTimeMillis() - tGlobal;
+        final String doneMsg = "========== [ThaumicAllAspect] " + tr("Full scan complete, total time")
             + " "
             + totalMs
             + " ms ==========";
@@ -735,50 +771,46 @@ public final class AspectScanner {
         ModFileLogger.endScanLog();
     }
 
-    // ==================== User-defined Verification / 用户自定义验证 ====================
-
-    private static final File VERIFY_CONFIG = new File("config", "ThaumicAllAspect-verify.cfg");
-
     /**
      * Reads user-defined verification entries from {@code config/ThaumicAllAspect-verify.cfg}.
      * If the file does not exist, creates it with example entries and comments.
      * Each valid line specifies an item to check: {@code modid:itemName:meta=Display Name}.
      * Results are written to the scan log.
-     *
+     * <p>
      * 从 {@code config/ThaumicAllAspect-verify.cfg} 读取用户自定义验证条目。
      * 如果文件不存在，会创建包含示例条目和注释的默认文件。
      * 每行有效条目指定一个要检查的物品：{@code 模组id:物品名:meta=显示名}。
      * 结果写入扫描日志。
      */
     private static void runVerifyFromConfig() {
-        ensureVerifyConfigExists();
+        AspectScanner.ensureVerifyConfigExists();
 
-        List<String[]> entries = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(
-            new InputStreamReader(new FileInputStream(VERIFY_CONFIG), StandardCharsets.UTF_8))) {
+        final List<String[]> entries = new ArrayList<>();
+        try (final BufferedReader reader = new BufferedReader(
+            new InputStreamReader(new FileInputStream(AspectScanner.VERIFY_CONFIG), StandardCharsets.UTF_8))) {
             String line;
-            while ((line = reader.readLine()) != null) {
+            while (null != (line = reader.readLine())) {
                 line = line.trim();
                 if (line.isEmpty() || line.startsWith("#")) continue;
                 // Format: modid:itemName:meta=Display Name
-                int eqIdx = line.indexOf('=');
-                String key = eqIdx > 0 ? line.substring(0, eqIdx)
+                final int eqIdx = line.indexOf('=');
+                final String key = 0 < eqIdx ? line.substring(0, eqIdx)
                     .trim() : line.trim();
-                String displayName = eqIdx > 0 ? line.substring(eqIdx + 1)
+                final String displayName = 0 < eqIdx ? line.substring(eqIdx + 1)
                     .trim() : key;
 
-                String[] parts = key.split(":");
-                if (parts.length < 3) continue;
-                String registryName = parts[0] + ":" + parts[1];
-                String metaStr = parts[2];
+                final String[] parts = key.split(":");
+                if (3 > parts.length) continue;
+                final String registryName = parts[0] + ":" + parts[1];
+                final String metaStr = parts[2];
                 try {
-                    int meta = Integer.parseInt(metaStr);
+                    final int meta = Integer.parseInt(metaStr);
                     entries.add(new String[] { registryName, String.valueOf(meta), displayName });
-                } catch (NumberFormatException ignored) {}
+                } catch (final NumberFormatException ignored) {}
             }
-        } catch (FileNotFoundException e) {
+        } catch (final FileNotFoundException e) {
             return;
-        } catch (IOException e) {
+        } catch (final IOException e) {
             ModFileLogger.warn("[ThaumicAllAspect] Error reading verify config: " + e.getMessage());
             return;
         }
@@ -789,8 +821,8 @@ public final class AspectScanner {
         ModFileLogger
             .scanSummary("========== " + tr("[Verify]") + " " + tr("User-defined verification") + " ==========");
 
-        for (String[] entry : entries) {
-            verifyItem(entry[0], Integer.parseInt(entry[1]), entry[2]);
+        for (final String[] entry : entries) {
+            AspectScanner.verifyItem(entry[0], Integer.parseInt(entry[1]), entry[2]);
         }
     }
 
@@ -799,12 +831,12 @@ public final class AspectScanner {
      * 如果验证配置文件不存在，创建包含示例条目的默认文件。
      */
     private static void ensureVerifyConfigExists() {
-        if (VERIFY_CONFIG.exists()) return;
-        File dir = VERIFY_CONFIG.getParentFile();
-        if (dir != null && !dir.exists()) dir.mkdirs();
-        try (BufferedWriter writer = new BufferedWriter(
-            new OutputStreamWriter(new FileOutputStream(VERIFY_CONFIG), StandardCharsets.UTF_8))) {
-            String[] lines = { "# ============================================================",
+        if (AspectScanner.VERIFY_CONFIG.exists()) return;
+        final File dir = AspectScanner.VERIFY_CONFIG.getParentFile();
+        if (null != dir && !dir.exists()) dir.mkdirs();
+        try (final BufferedWriter writer = new BufferedWriter(
+            new OutputStreamWriter(new FileOutputStream(AspectScanner.VERIFY_CONFIG), StandardCharsets.UTF_8))) {
+            final String[] lines = { "# ============================================================",
                 "# ThaumicAllAspect - Aspect Verification Config", "# ThaumicAllAspect - 要素验证配置文件",
                 "# ============================================================", "#",
                 "# This file lets you verify whether specific items received",
@@ -837,11 +869,11 @@ public final class AspectScanner {
                 "# TConstruct:materials:0=Paper", "#", "# ============================================================",
                 "# ADD YOUR ENTRIES BELOW / 在下方添加你的条目",
                 "# ============================================================", "", };
-            for (String l : lines) {
+            for (final String l : lines) {
                 writer.write(l);
                 writer.newLine();
             }
-        } catch (IOException e) {
+        } catch (final IOException e) {
             ModFileLogger.warn("[ThaumicAllAspect] Failed to create verify config: " + e.getMessage());
         }
     }
@@ -849,13 +881,13 @@ public final class AspectScanner {
     /**
      * Logs the aspect state of a single item for verification.
      * Checks ThaumcraftApi.exists, getObjectAspects, and local CACHE.
-     *
+     * <p>
      * 记录单个物品的要素状态以供验证。
      * 检查 ThaumcraftApi.exists、getObjectAspects 和本地 CACHE。
      */
-    private static void verifyItem(String registryName, int meta, String displayName) {
-        Item item = (Item) Item.itemRegistry.getObject(registryName);
-        if (item == null) {
+    private static void verifyItem(final String registryName, final int meta, final String displayName) {
+        final Item item = (Item) Item.itemRegistry.getObject(registryName);
+        if (null == item) {
             ModFileLogger.scanSummary(
                 tr("[Verify]") + " "
                     + displayName
@@ -867,12 +899,12 @@ public final class AspectScanner {
                     + tr("not found in registry!"));
             return;
         }
-        ItemStack stack = new ItemStack(item, 1, meta);
-        AspectList fromApi = ThaumcraftApiHelper.getObjectAspects(stack);
-        boolean apiHas = fromApi != null && fromApi.size() > 0;
-        boolean existsInMap = ThaumcraftApi.exists(item, meta);
-        String cacheKey = AspectUtils.key(stack);
-        AspectList cached = AspectUtils.CACHE.get(cacheKey);
+        final ItemStack stack = new ItemStack(item, 1, meta);
+        final AspectList fromApi = ThaumcraftApiHelper.getObjectAspects(stack);
+        final boolean apiHas = null != fromApi && 0 < fromApi.size();
+        final boolean existsInMap = ThaumcraftApi.exists(item, meta);
+        final String cacheKey = AspectUtils.key(stack);
+        final AspectList cached = AspectUtils.CACHE.get(cacheKey);
 
         ModFileLogger.scanSummary(tr("[Verify]") + " " + displayName + " (" + registryName + ":" + meta + ")");
         ModFileLogger.scanSummary(tr("[Verify]") + "   ThaumcraftApi.exists = " + existsInMap);
@@ -881,7 +913,7 @@ public final class AspectScanner {
                 + (apiHas ? AspectUtils.aspectListToString(fromApi) : tr("empty/null")));
         ModFileLogger.scanSummary(
             tr("[Verify]") + "   cache = "
-                + (cached != null ? AspectUtils.aspectListToString(cached) : tr("not in cache")));
+                + (null != cached ? AspectUtils.aspectListToString(cached) : tr("not in cache")));
     }
 
     /**
@@ -915,17 +947,17 @@ public final class AspectScanner {
      */
     private static void scanFluids() {
         int total = 0, assigned = 0;
-        Map<String, Fluid> registeredFluids = FluidRegistry.getRegisteredFluids();
-        if (registeredFluids == null) return;
-        for (Map.Entry<String, Fluid> entry : registeredFluids.entrySet()) {
-            String name = entry.getKey();
-            Fluid fluid = entry.getValue();
-            if ("air".equals(name) || fluid == null) continue;
+        final Map<String, Fluid> registeredFluids = FluidRegistry.getRegisteredFluids();
+        if (null == registeredFluids) return;
+        for (final Map.Entry<String, Fluid> entry : registeredFluids.entrySet()) {
+            final String name = entry.getKey();
+            final Fluid fluid = entry.getValue();
+            if ("air".equals(name) || null == fluid) continue;
             total++;
 
             try {
-                ItemStack rep = AspectUtils.getFluidRepresentative(fluid);
-                if (rep == null) continue;
+                final ItemStack rep = AspectUtils.getFluidRepresentative(fluid);
+                if (null == rep) continue;
                 if (AspectUtils.hasAspect(rep)) {
                     assigned++;
                     continue;
@@ -933,11 +965,11 @@ public final class AspectScanner {
 
                 AspectList aspects = AspectDeriver.deriveFluidFromMaterial(name);
 
-                if (aspects == null || aspects.size() == 0) {
+                if (null == aspects || 0 == aspects.size()) {
                     aspects = AspectDeriver.getOrGenerateAspectsFor(rep, 0, new HashSet<>());
                 }
 
-                if (aspects != null && aspects.size() > 0) {
+                if (null != aspects && 0 < aspects.size()) {
                     ThaumcraftApi.registerObjectTag(rep, aspects.copy());
                     assigned++;
                     ModFileLogger.scanSummary(
@@ -945,7 +977,7 @@ public final class AspectScanner {
                 } else {
                     AspectUtils.FAILED_IDS.add("fluid:" + name);
                 }
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 ModFileLogger.scanSummary(
                     tr("[Fluid crash]") + " fluid:"
                         + name
@@ -986,15 +1018,15 @@ public final class AspectScanner {
      * </p>
      */
     private static void buildOreDictIndex() {
-        long t0 = System.currentTimeMillis();
+        final long t0 = System.currentTimeMillis();
         AspectUtils.ORE_DICT_METAS = new HashMap<>();
-        for (String oreName : OreDictionary.getOreNames()) {
-            for (ItemStack ore : OreDictionary.getOres(oreName)) {
-                if (ore == null || ore.getItem() == null) continue;
-                int m = ore.getItemDamage();
-                if (m >= 0 && m != OreDictionary.WILDCARD_VALUE) {
+        for (final String oreName : OreDictionary.getOreNames()) {
+            for (final ItemStack ore : OreDictionary.getOres(oreName)) {
+                if (null == ore || null == ore.getItem()) continue;
+                final int m = ore.getItemDamage();
+                if (0 <= m && OreDictionary.WILDCARD_VALUE != m) {
                     Set<Integer> set = AspectUtils.ORE_DICT_METAS.get(ore.getItem());
-                    if (set == null) {
+                    if (null == set) {
                         set = new LinkedHashSet<>();
                         AspectUtils.ORE_DICT_METAS.put(ore.getItem(), set);
                     }
@@ -1032,35 +1064,35 @@ public final class AspectScanner {
      * </p>
      */
     private static void buildCraftingRecipeIndex() {
-        long t1 = System.currentTimeMillis();
+        final long t1 = System.currentTimeMillis();
         @SuppressWarnings("unchecked")
-        List<IRecipe> allRecipes = CraftingManager.getInstance()
+        final List<IRecipe> allRecipes = CraftingManager.getInstance()
             .getRecipeList();
         AspectUtils.RECIPE_INDEX = new HashMap<>();
         AspectUtils.RECIPE_OUTPUT_METAS = new HashMap<>();
-        if (allRecipes == null) return;
-        for (IRecipe recipe : allRecipes) {
-            if (recipe == null) continue;
-            ItemStack output;
+        if (null == allRecipes) return;
+        for (final IRecipe recipe : allRecipes) {
+            if (null == recipe) continue;
+            final ItemStack output;
             try {
                 output = recipe.getRecipeOutput();
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 continue;
             }
-            if (output == null || output.getItem() == null) continue;
-            Item outItem = output.getItem();
-            int outMeta = output.getItemDamage();
+            if (null == output || null == output.getItem()) continue;
+            final Item outItem = output.getItem();
+            final int outMeta = output.getItemDamage();
 
             List<IRecipe> list = AspectUtils.RECIPE_INDEX.get(outItem);
-            if (list == null) {
+            if (null == list) {
                 list = new ArrayList<>();
                 AspectUtils.RECIPE_INDEX.put(outItem, list);
             }
             list.add(recipe);
 
-            if (outMeta >= 0 && outMeta != OreDictionary.WILDCARD_VALUE) {
+            if (0 <= outMeta && OreDictionary.WILDCARD_VALUE != outMeta) {
                 Set<Integer> ms = AspectUtils.RECIPE_OUTPUT_METAS.get(outItem);
-                if (ms == null) {
+                if (null == ms) {
                     ms = new LinkedHashSet<>();
                     AspectUtils.RECIPE_OUTPUT_METAS.put(outItem, ms);
                 }
@@ -1100,28 +1132,28 @@ public final class AspectScanner {
      * </p>
      */
     private static void buildFurnaceIndex() {
-        long t2 = System.currentTimeMillis();
+        final long t2 = System.currentTimeMillis();
         AspectUtils.FURNACE_INDEX = new HashMap<>();
         @SuppressWarnings("unchecked")
-        Map<ItemStack, ItemStack> smeltingMap = FurnaceRecipes.smelting()
+        final Map<ItemStack, ItemStack> smeltingMap = FurnaceRecipes.smelting()
             .getSmeltingList();
-        if (smeltingMap == null) return;
-        for (Map.Entry<ItemStack, ItemStack> entry : smeltingMap.entrySet()) {
-            ItemStack output = entry.getValue();
-            if (output == null || output.getItem() == null) continue;
-            Item outItem = output.getItem();
-            int outMeta = output.getItemDamage();
+        if (null == smeltingMap) return;
+        for (final Map.Entry<ItemStack, ItemStack> entry : smeltingMap.entrySet()) {
+            final ItemStack output = entry.getValue();
+            if (null == output || null == output.getItem()) continue;
+            final Item outItem = output.getItem();
+            final int outMeta = output.getItemDamage();
 
             List<Map.Entry<ItemStack, ItemStack>> fList = AspectUtils.FURNACE_INDEX.get(outItem);
-            if (fList == null) {
+            if (null == fList) {
                 fList = new ArrayList<>();
                 AspectUtils.FURNACE_INDEX.put(outItem, fList);
             }
             fList.add(entry);
 
-            if (outMeta >= 0 && outMeta != OreDictionary.WILDCARD_VALUE) {
+            if (0 <= outMeta && OreDictionary.WILDCARD_VALUE != outMeta) {
                 Set<Integer> ms = AspectUtils.RECIPE_OUTPUT_METAS.get(outItem);
-                if (ms == null) {
+                if (null == ms) {
                     ms = new LinkedHashSet<>();
                     AspectUtils.RECIPE_OUTPUT_METAS.put(outItem, ms);
                 }
@@ -1162,39 +1194,39 @@ public final class AspectScanner {
      * </p>
      */
     private static void buildTCRecipeIndex() {
-        long t3 = System.currentTimeMillis();
+        final long t3 = System.currentTimeMillis();
         AspectUtils.TC_RECIPE_INDEX = new HashMap<>();
         int tcRecipeCount = 0;
         @SuppressWarnings("unchecked")
-        List<Object> tcRecipes = ThaumcraftApi.getCraftingRecipes();
-        if (tcRecipes == null) return;
-        for (Object obj : tcRecipes) {
+        final List<Object> tcRecipes = ThaumcraftApi.getCraftingRecipes();
+        if (null == tcRecipes) return;
+        for (final Object obj : tcRecipes) {
             ItemStack tcOutput = null;
 
             if (obj instanceof IArcaneRecipe) {
                 tcOutput = ((IArcaneRecipe) obj).getRecipeOutput();
             } else if (obj instanceof InfusionRecipe) {
-                Object infOut = ((InfusionRecipe) obj).getRecipeOutput();
+                final Object infOut = ((InfusionRecipe) obj).getRecipeOutput();
                 if (infOut instanceof ItemStack) tcOutput = (ItemStack) infOut;
             } else if (obj instanceof CrucibleRecipe) {
                 tcOutput = ((CrucibleRecipe) obj).getRecipeOutput();
             }
 
-            if (tcOutput == null || tcOutput.getItem() == null) continue;
+            if (null == tcOutput || null == tcOutput.getItem()) continue;
             tcRecipeCount++;
-            Item outItem = tcOutput.getItem();
-            int outMeta = tcOutput.getItemDamage();
+            final Item outItem = tcOutput.getItem();
+            final int outMeta = tcOutput.getItemDamage();
 
             List<Object> list = AspectUtils.TC_RECIPE_INDEX.get(outItem);
-            if (list == null) {
+            if (null == list) {
                 list = new ArrayList<>();
                 AspectUtils.TC_RECIPE_INDEX.put(outItem, list);
             }
             list.add(obj);
 
-            if (outMeta >= 0 && outMeta != OreDictionary.WILDCARD_VALUE) {
+            if (0 <= outMeta && OreDictionary.WILDCARD_VALUE != outMeta) {
                 Set<Integer> ms = AspectUtils.RECIPE_OUTPUT_METAS.get(outItem);
-                if (ms == null) {
+                if (null == ms) {
                     ms = new LinkedHashSet<>();
                     AspectUtils.RECIPE_OUTPUT_METAS.put(outItem, ms);
                 }

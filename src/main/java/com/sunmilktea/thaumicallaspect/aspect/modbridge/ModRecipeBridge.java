@@ -1,17 +1,23 @@
-package com.sunmilktea.thaumicallaspect.aspect;
+package com.sunmilktea.thaumicallaspect.aspect.modbridge;
 
 import static com.sunmilktea.thaumicallaspect.logging.ModI18n.tr;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.function.IntSupplier;
 
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.oredict.OreDictionary;
 
 import com.sunmilktea.thaumicallaspect.ThaumicAllAspect;
+import com.sunmilktea.thaumicallaspect.aspect.derive.AspectDeriver;
+import com.sunmilktea.thaumicallaspect.aspect.derive.AspectUtils;
 import com.sunmilktea.thaumicallaspect.logging.ModFileLogger;
 
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -24,11 +30,11 @@ import thaumcraft.api.aspects.AspectList;
 /**
  * Scans non-standard recipe systems from other mods via reflection, extracting input/output
  * pairs to derive aspects for items that the main CraftingManager-based scanner missed.
- *
+ * <p>
  * Each mod's recipe system is accessed purely through reflection so there is no hard dependency.
  * If a mod isn't loaded, its scanner method silently returns zero results.
  * All reflection failures are logged to the scan log file for debugging.
- *
+ * <p>
  * Currently supported mods:
  * <ul>
  * <li>AbyssalCraft — Necronomicon Rituals (Creation &amp; Infusion), Transmutator,
@@ -41,14 +47,14 @@ import thaumcraft.api.aspects.AspectList;
  * <li>EnderIO — Alloy Smelter, SAG Mill, Enchanter</li>
  * <li>Railcraft — Rolling Machine, Blast Furnace, Rock Crusher, Coke Oven</li>
  * </ul>
- *
+ * <p>
  * 通过反射扫描其他模组的非标准配方系统，提取输入/输出对，
  * 为主 CraftingManager 扫描器遗漏的物品推导要素。
- *
+ * <p>
  * 每个模组的配方系统完全通过反射访问，因此没有硬依赖。
  * 如果模组未加载，其扫描方法会静默返回零结果。
  * 所有反射失败都会记录到扫描日志文件以便调试。
- *
+ * <p>
  * 当前支持的模组：
  * <ul>
  * <li>深渊国度 (AbyssalCraft) — 死灵之书仪式（创造 &amp; 注入）、变质器、结晶器、物化器</li>
@@ -61,35 +67,36 @@ import thaumcraft.api.aspects.AspectList;
  * <li>铁路 (Railcraft) — 轧制机、高炉、碎石机、焦炉</li>
  * </ul>
  */
-public final class ModRecipeBridge {
+public enum ModRecipeBridge {
+    ;
 
-    private ModRecipeBridge() {}
-
-    /** Total items registered by all mod recipe bridges in a single scan. */
-    static int statModRecipeRegistered = 0;
+    /**
+     * Total items registered by all mod recipe bridges in a single scan.
+     */
+    public static int statModRecipeRegistered;
 
     /**
      * Runs one mod's scanner; on Throwable (e.g. NoClassDefFoundError from client-only class)
      * logs and returns 0 so server can still run other mods' scans.
      * 执行单个模组的扫描；若抛出 Throwable（如因客户端类导致 NoClassDefFoundError）则记录并返回 0，服务器可继续扫描其他模组。
      */
-    private static int safeModScan(String modName, IntSupplier scan) {
+    private static int safeModScan(final String modName, final IntSupplier scan) {
         try {
             return scan.getAsInt();
-        } catch (NoClassDefFoundError e) {
+        } catch (final NoClassDefFoundError e) {
             ModFileLogger.warn(
                 "[ThaumicAllAspect] " + modName
                     + " "
                     + tr("scan skipped")
                     + " (incompatible/missing class): "
-                    + (e.getMessage() != null ? e.getMessage()
+                    + (null != e.getMessage() ? e.getMessage()
                         : e.getClass()
                             .getSimpleName()));
             return 0;
-        } catch (Throwable t) {
+        } catch (final Throwable t) {
             String msg = t.getClass()
                 .getSimpleName();
-            if (t.getMessage() != null) msg += ": " + t.getMessage();
+            if (null != t.getMessage()) msg += ": " + t.getMessage();
             ModFileLogger.warn("[ThaumicAllAspect] " + modName + " " + tr("scan skipped") + ": " + msg);
             return 0;
         }
@@ -99,45 +106,50 @@ public final class ModRecipeBridge {
 
     /**
      * Entry point: runs all supported mod recipe scanners with multi-pass retry.
-     *
+     * <p>
      * Recipe outputs may depend on other mod-recipe outputs as inputs.
      * A single pass can miss items whose ingredients haven't been derived yet.
      * So we repeat the full scan until no new items are registered (convergence)
      * or the maximum number of passes is reached.
-     *
+     * <p>
      * 入口：带多轮重试运行所有支持的模组配方扫描器。
-     *
+     * <p>
      * 配方产物可能依赖其他模组配方的产物作为材料。
      * 单次扫描可能遗漏材料尚未推导的物品。
      * 因此重复完整扫描直到无新注册（收敛）或达到最大轮次。
      */
     public static void scanModSpecificRecipes() {
-        if (FMLCommonHandler.instance()
-            .getEffectiveSide() == Side.SERVER) {
+        if (Side.SERVER == FMLCommonHandler.instance()
+            .getEffectiveSide()) {
             return; // 服务器依赖 config 缓存获得模组配方要素，不执行任何反射扫描
         }
-        statModRecipeRegistered = 0;
-        long t0 = System.currentTimeMillis();
-        int maxPasses = 5;
+        ModRecipeBridge.statModRecipeRegistered = 0;
+        final long t0 = System.currentTimeMillis();
+        final int maxPasses = 5;
         int totalCount = 0;
 
         for (int pass = 1; pass <= maxPasses; pass++) {
             int passCount = 0;
             if (Loader.isModLoaded("abyssalcraft"))
-                passCount += safeModScan("AbyssalCraft", ModRecipeBridge::scanAbyssalCraft);
-            if (Loader.isModLoaded("witchery")) passCount += safeModScan("Witchery", ModRecipeBridge::scanWitchery);
+                passCount += ModRecipeBridge.safeModScan("AbyssalCraft", ModRecipeBridge::scanAbyssalCraft);
+            if (Loader.isModLoaded("witchery"))
+                passCount += ModRecipeBridge.safeModScan("Witchery", ModRecipeBridge::scanWitchery);
             if (Loader.isModLoaded("bloodmagic"))
-                passCount += safeModScan("Blood Magic", ModRecipeBridge::scanBloodMagic);
-            if (Loader.isModLoaded("botania")) passCount += safeModScan("Botania", ModRecipeBridge::scanBotania);
-            if (Loader.isModLoaded("forestry")) passCount += safeModScan("Forestry", ModRecipeBridge::scanForestry);
+                passCount += ModRecipeBridge.safeModScan("Blood Magic", ModRecipeBridge::scanBloodMagic);
+            if (Loader.isModLoaded("botania"))
+                passCount += ModRecipeBridge.safeModScan("Botania", ModRecipeBridge::scanBotania);
+            if (Loader.isModLoaded("forestry"))
+                passCount += ModRecipeBridge.safeModScan("Forestry", ModRecipeBridge::scanForestry);
             if (Loader.isModLoaded("tconstruct"))
-                passCount += safeModScan("Tinkers' Construct", ModRecipeBridge::scanTinkersConstruct);
-            if (Loader.isModLoaded("enderio")) passCount += safeModScan("EnderIO", ModRecipeBridge::scanEnderIO);
-            if (Loader.isModLoaded("railcraft")) passCount += safeModScan("Railcraft", ModRecipeBridge::scanRailcraft);
+                passCount += ModRecipeBridge.safeModScan("Tinkers' Construct", ModRecipeBridge::scanTinkersConstruct);
+            if (Loader.isModLoaded("enderio"))
+                passCount += ModRecipeBridge.safeModScan("EnderIO", ModRecipeBridge::scanEnderIO);
+            if (Loader.isModLoaded("railcraft"))
+                passCount += ModRecipeBridge.safeModScan("Railcraft", ModRecipeBridge::scanRailcraft);
 
             totalCount += passCount;
 
-            String passMsg = tr("[Mod recipes]") + " "
+            final String passMsg = tr("[Mod recipes]") + " "
                 + tr("[Pass")
                 + " "
                 + pass
@@ -154,8 +166,8 @@ public final class ModRecipeBridge {
                 + ")";
             ModFileLogger.scanSummary(passMsg);
 
-            if (passCount == 0) {
-                String stopMsg = tr("[Mod recipes]") + " "
+            if (0 == passCount) {
+                final String stopMsg = tr("[Mod recipes]") + " "
                     + tr("[Pass")
                     + " "
                     + pass
@@ -178,9 +190,9 @@ public final class ModRecipeBridge {
             }
         }
 
-        long elapsed = System.currentTimeMillis() - t0;
-        if (totalCount > 0) {
-            String msg = tr("[Mod recipes]") + " "
+        final long elapsed = System.currentTimeMillis() - t0;
+        if (0 < totalCount) {
+            final String msg = tr("[Mod recipes]") + " "
                 + tr("Registered")
                 + " "
                 + totalCount
@@ -192,7 +204,7 @@ public final class ModRecipeBridge {
             ModFileLogger.info(msg);
             ModFileLogger.scan(msg);
         }
-        statModRecipeRegistered = totalCount;
+        ModRecipeBridge.statModRecipeRegistered = totalCount;
     }
 
     // ==================== Utility Helpers / 工具方法 ====================
@@ -200,15 +212,15 @@ public final class ModRecipeBridge {
     /**
      * Tries to load a class by name from multiple candidates. Returns null if none found.
      * ClassNotFoundException is expected (mod not installed), so it is NOT logged.
-     *
+     * <p>
      * 尝试按名称从多个候选项加载类。如果都找不到则返回 null。
      * ClassNotFoundException 是预期的（模组未安装），因此不记录日志。
      */
-    private static Class<?> tryLoadClass(String... classNames) {
-        for (String name : classNames) {
+    private static Class<?> tryLoadClass(final String... classNames) {
+        for (final String name : classNames) {
             try {
                 return Class.forName(name);
-            } catch (ClassNotFoundException ignored) {}
+            } catch (final ClassNotFoundException ignored) {}
         }
         return null;
     }
@@ -217,13 +229,13 @@ public final class ModRecipeBridge {
      * Tries to extract recipes from a class by name. Returns 0 if class not found.
      * 尝试按类名提取配方。如果类找不到则返回 0。
      */
-    private static int tryExtractFromClass(String className, String modLabel) {
+    private static int tryExtractFromClass(final String className, final String modLabel) {
         try {
-            Class<?> clazz = Class.forName(className);
-            logReflect(modLabel, "class loaded: " + className);
-            return extractRecipesFromClass(clazz, modLabel);
-        } catch (ClassNotFoundException e) {
-            logReflect(modLabel, "class not found: " + className);
+            final Class<?> clazz = Class.forName(className);
+            ModRecipeBridge.logReflect(modLabel, "class loaded: " + className);
+            return ModRecipeBridge.extractRecipesFromClass(clazz, modLabel);
+        } catch (final ClassNotFoundException e) {
+            ModRecipeBridge.logReflect(modLabel, "class not found: " + className);
             return 0;
         }
     }
@@ -231,11 +243,11 @@ public final class ModRecipeBridge {
     /**
      * Logs a reflection event to the scan log file for debugging.
      * All reflection attempts (success and failure) are recorded here, not in console.
-     *
+     * <p>
      * 将反射事件记录到扫描日志文件以便调试。
      * 所有反射尝试（成功和失败）都记录在这里，不在控制台输出。
      */
-    private static void logReflect(String context, String detail) {
+    private static void logReflect(final String context, final String detail) {
         ModFileLogger.scan("[Reflect] " + context + " | " + detail);
     }
 
@@ -243,10 +255,10 @@ public final class ModRecipeBridge {
      * Logs a reflection exception to the scan log file.
      * 将反射异常记录到扫描日志文件。
      */
-    private static void logReflectError(String context, String operation, Exception e) {
+    private static void logReflectError(final String context, final String operation, final Exception e) {
         String msg = e.getClass()
             .getSimpleName();
-        if (e.getMessage() != null) msg += ": " + e.getMessage();
+        if (null != e.getMessage()) msg += ": " + e.getMessage();
         ModFileLogger.scan("[Reflect FAIL] " + context + " | " + operation + " -> " + msg);
     }
 
@@ -262,10 +274,10 @@ public final class ModRecipeBridge {
      * - Output: getItem() -> ItemStack
      * - Inputs: getOfferings() -> Object[] (ItemStack or String/OreDict)
      * - Central: getSacrifice() -> Object (ItemStack or String/OreDict)
-     *
+     * <p>
      * The ritual API was added in AbyssalCraft mod version 1.4 (@since 1.4).
      * The 1.7.10 GitHub branch is an early snapshot; actual released JARs include rituals.
-     *
+     * <p>
      * 扫描深渊国度的 5 种配方系统（通过公开单例 API，1.7.10 版本）：
      * 1. 变质器 — Map(输入->输出)
      * 2. 结晶器 — Map(输入->ItemStack[]{输出1,输出2})
@@ -275,27 +287,27 @@ public final class ModRecipeBridge {
      * - 输出: getItem() -> ItemStack
      * - 供品: getOfferings() -> Object[]（ItemStack 或 String/矿辞名）
      * - 祭品: getSacrifice() -> Object（ItemStack 或 String/矿辞名）
-     *
+     * <p>
      * 仪式 API 从深渊国度 mod 版本 1.4 起加入。
      * GitHub 上的 1.7.10 分支只是早期快照，实际发布的 JAR 包含仪式系统。
      */
     private static int scanAbyssalCraft() {
-        Class<?> apiClass = tryLoadClass(
+        final Class<?> apiClass = ModRecipeBridge.tryLoadClass(
             "com.shinoow.abyssalcraft.api.AbyssalCraftAPI",
             "com.shinoow.abyssalcraft.api.recipe.CrystallizerRecipes");
-        if (apiClass == null) return 0;
+        if (null == apiClass) return 0;
 
         int registered = 0;
         ModFileLogger.info("[ThaumicAllAspect] " + tr("[Mod recipes]") + " AbyssalCraft " + tr("detected, scanning"));
         ModFileLogger.scan(tr("[Mod recipes]") + " ========== AbyssalCraft ==========");
 
-        registered += scanACTransmutator();
-        registered += scanACCrystallizer();
-        registered += scanACMaterializer();
-        registered += scanACEngraver();
-        registered += scanACRituals();
+        registered += ModRecipeBridge.scanACTransmutator();
+        registered += ModRecipeBridge.scanACCrystallizer();
+        registered += ModRecipeBridge.scanACMaterializer();
+        registered += ModRecipeBridge.scanACEngraver();
+        registered += ModRecipeBridge.scanACRituals();
 
-        logModSummary("AbyssalCraft", registered);
+        ModRecipeBridge.logModSummary("AbyssalCraft", registered);
         return registered;
     }
 
@@ -305,29 +317,29 @@ public final class ModRecipeBridge {
      */
     private static int scanACTransmutator() {
         try {
-            Class<?> clazz = Class.forName("com.shinoow.abyssalcraft.api.recipe.TransmutatorRecipes");
-            Method inst = clazz.getMethod("instance");
-            Object singleton = inst.invoke(null);
-            Method getList = clazz.getMethod("getTransmutationList");
-            Object result = getList.invoke(singleton);
+            final Class<?> clazz = Class.forName("com.shinoow.abyssalcraft.api.recipe.TransmutatorRecipes");
+            final Method inst = clazz.getMethod("instance");
+            final Object singleton = inst.invoke(null);
+            final Method getList = clazz.getMethod("getTransmutationList");
+            final Object result = getList.invoke(singleton);
             if (result instanceof Map) {
-                Map<?, ?> map = (Map<?, ?>) result;
-                logReflect(
+                final Map<?, ?> map = (Map<?, ?>) result;
+                ModRecipeBridge.logReflect(
                     "AbyssalCraft",
                     "TransmutatorRecipes.getTransmutationList() -> Map (size=" + map.size() + ")");
                 int reg = 0;
-                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                    ItemStack input = toItemStack(entry.getKey());
-                    ItemStack output = toItemStack(entry.getValue());
-                    reg += tryDeriveFromInput(output, input, "AbyssalCraft-Transmutator");
+                for (final Map.Entry<?, ?> entry : map.entrySet()) {
+                    final ItemStack input = ModRecipeBridge.toItemStack(entry.getKey());
+                    final ItemStack output = ModRecipeBridge.toItemStack(entry.getValue());
+                    reg += ModRecipeBridge.tryDeriveFromInput(output, input, "AbyssalCraft-Transmutator");
                 }
-                logReflect("AbyssalCraft", "Transmutator: derived " + reg + " items");
+                ModRecipeBridge.logReflect("AbyssalCraft", "Transmutator: derived " + reg + " items");
                 return reg;
             }
-        } catch (ClassNotFoundException e) {
-            logReflect("AbyssalCraft", "TransmutatorRecipes class not found");
-        } catch (Exception e) {
-            logReflectError("AbyssalCraft", "scanACTransmutator", e);
+        } catch (final ClassNotFoundException e) {
+            ModRecipeBridge.logReflect("AbyssalCraft", "TransmutatorRecipes class not found");
+        } catch (final Exception e) {
+            ModRecipeBridge.logReflectError("AbyssalCraft", "scanACTransmutator", e);
         }
         return 0;
     }
@@ -338,36 +350,36 @@ public final class ModRecipeBridge {
      */
     private static int scanACCrystallizer() {
         try {
-            Class<?> clazz = Class.forName("com.shinoow.abyssalcraft.api.recipe.CrystallizerRecipes");
-            Method inst = clazz.getMethod("instance");
-            Object singleton = inst.invoke(null);
-            Method getList = clazz.getMethod("getCrystallizationList");
-            Object result = getList.invoke(singleton);
+            final Class<?> clazz = Class.forName("com.shinoow.abyssalcraft.api.recipe.CrystallizerRecipes");
+            final Method inst = clazz.getMethod("instance");
+            final Object singleton = inst.invoke(null);
+            final Method getList = clazz.getMethod("getCrystallizationList");
+            final Object result = getList.invoke(singleton);
             if (result instanceof Map) {
-                Map<?, ?> map = (Map<?, ?>) result;
-                logReflect(
+                final Map<?, ?> map = (Map<?, ?>) result;
+                ModRecipeBridge.logReflect(
                     "AbyssalCraft",
                     "CrystallizerRecipes.getCrystallizationList() -> Map (size=" + map.size() + ")");
                 int reg = 0;
-                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                    ItemStack input = toItemStack(entry.getKey());
-                    if (input == null || input.getItem() == null) continue;
-                    Object val = entry.getValue();
+                for (final Map.Entry<?, ?> entry : map.entrySet()) {
+                    final ItemStack input = ModRecipeBridge.toItemStack(entry.getKey());
+                    if (null == input || null == input.getItem()) continue;
+                    final Object val = entry.getValue();
                     if (val instanceof ItemStack[]) {
-                        for (ItemStack output : (ItemStack[]) val) {
-                            if (output != null && output.getItem() != null) {
-                                reg += tryDeriveFromInput(output, input, "AbyssalCraft-Crystallizer");
+                        for (final ItemStack output : (ItemStack[]) val) {
+                            if (null != output && null != output.getItem()) {
+                                reg += ModRecipeBridge.tryDeriveFromInput(output, input, "AbyssalCraft-Crystallizer");
                             }
                         }
                     }
                 }
-                logReflect("AbyssalCraft", "Crystallizer: derived " + reg + " items");
+                ModRecipeBridge.logReflect("AbyssalCraft", "Crystallizer: derived " + reg + " items");
                 return reg;
             }
-        } catch (ClassNotFoundException e) {
-            logReflect("AbyssalCraft", "CrystallizerRecipes class not found");
-        } catch (Exception e) {
-            logReflectError("AbyssalCraft", "scanACCrystallizer", e);
+        } catch (final ClassNotFoundException e) {
+            ModRecipeBridge.logReflect("AbyssalCraft", "CrystallizerRecipes class not found");
+        } catch (final Exception e) {
+            ModRecipeBridge.logReflectError("AbyssalCraft", "scanACCrystallizer", e);
         }
         return 0;
     }
@@ -379,46 +391,46 @@ public final class ModRecipeBridge {
      */
     private static int scanACMaterializer() {
         try {
-            Class<?> clazz = Class.forName("com.shinoow.abyssalcraft.api.recipe.MaterializerRecipes");
-            Method inst = clazz.getMethod("instance");
-            Object singleton = inst.invoke(null);
-            Method getList = clazz.getMethod("getMaterializationList");
-            Object result = getList.invoke(singleton);
+            final Class<?> clazz = Class.forName("com.shinoow.abyssalcraft.api.recipe.MaterializerRecipes");
+            final Method inst = clazz.getMethod("instance");
+            final Object singleton = inst.invoke(null);
+            final Method getList = clazz.getMethod("getMaterializationList");
+            final Object result = getList.invoke(singleton);
             if (result instanceof List) {
-                List<?> list = (List<?>) result;
-                logReflect(
+                final List<?> list = (List<?>) result;
+                ModRecipeBridge.logReflect(
                     "AbyssalCraft",
                     "MaterializerRecipes.getMaterializationList() -> List (size=" + list.size() + ")");
                 int reg = 0;
-                for (Object mat : list) {
-                    if (mat == null) continue;
+                for (final Object mat : list) {
+                    if (null == mat) continue;
                     try {
-                        Field outputField = mat.getClass()
+                        final Field outputField = mat.getClass()
                             .getField("output");
-                        Field inputField = mat.getClass()
+                        final Field inputField = mat.getClass()
                             .getField("input");
-                        ItemStack output = (ItemStack) outputField.get(mat);
-                        ItemStack[] inputs = (ItemStack[]) inputField.get(mat);
-                        if (output == null || output.getItem() == null) continue;
-                        if (inputs == null || inputs.length == 0) continue;
-                        List<ItemStack> inputList = new ArrayList<>();
-                        for (ItemStack s : inputs) {
-                            if (s != null && s.getItem() != null) inputList.add(s);
+                        final ItemStack output = (ItemStack) outputField.get(mat);
+                        final ItemStack[] inputs = (ItemStack[]) inputField.get(mat);
+                        if (null == output || null == output.getItem()) continue;
+                        if (null == inputs || 0 == inputs.length) continue;
+                        final List<ItemStack> inputList = new ArrayList<>();
+                        for (final ItemStack s : inputs) {
+                            if (null != s && null != s.getItem()) inputList.add(s);
                         }
                         if (!inputList.isEmpty()) {
-                            reg += tryDeriveFromInputs(output, inputList, "AbyssalCraft-Materializer");
+                            reg += ModRecipeBridge.tryDeriveFromInputs(output, inputList, "AbyssalCraft-Materializer");
                         }
-                    } catch (Exception e) {
-                        logReflectError("AbyssalCraft", "Materialization field access", e);
+                    } catch (final Exception e) {
+                        ModRecipeBridge.logReflectError("AbyssalCraft", "Materialization field access", e);
                     }
                 }
-                logReflect("AbyssalCraft", "Materializer: derived " + reg + " items");
+                ModRecipeBridge.logReflect("AbyssalCraft", "Materializer: derived " + reg + " items");
                 return reg;
             }
-        } catch (ClassNotFoundException e) {
-            logReflect("AbyssalCraft", "MaterializerRecipes class not found");
-        } catch (Exception e) {
-            logReflectError("AbyssalCraft", "scanACMaterializer", e);
+        } catch (final ClassNotFoundException e) {
+            ModRecipeBridge.logReflect("AbyssalCraft", "MaterializerRecipes class not found");
+        } catch (final Exception e) {
+            ModRecipeBridge.logReflectError("AbyssalCraft", "scanACMaterializer", e);
         }
         return 0;
     }
@@ -429,27 +441,28 @@ public final class ModRecipeBridge {
      */
     private static int scanACEngraver() {
         try {
-            Class<?> clazz = Class.forName("com.shinoow.abyssalcraft.api.recipe.EngraverRecipes");
-            Method inst = clazz.getMethod("instance");
-            Object singleton = inst.invoke(null);
-            Method getList = clazz.getMethod("getEngravingList");
-            Object result = getList.invoke(singleton);
+            final Class<?> clazz = Class.forName("com.shinoow.abyssalcraft.api.recipe.EngraverRecipes");
+            final Method inst = clazz.getMethod("instance");
+            final Object singleton = inst.invoke(null);
+            final Method getList = clazz.getMethod("getEngravingList");
+            final Object result = getList.invoke(singleton);
             if (result instanceof Map) {
-                Map<?, ?> map = (Map<?, ?>) result;
-                logReflect("AbyssalCraft", "EngraverRecipes.getEngravingList() -> Map (size=" + map.size() + ")");
+                final Map<?, ?> map = (Map<?, ?>) result;
+                ModRecipeBridge
+                    .logReflect("AbyssalCraft", "EngraverRecipes.getEngravingList() -> Map (size=" + map.size() + ")");
                 int reg = 0;
-                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                    ItemStack input = toItemStack(entry.getKey());
-                    ItemStack output = toItemStack(entry.getValue());
-                    reg += tryDeriveFromInput(output, input, "AbyssalCraft-Engraver");
+                for (final Map.Entry<?, ?> entry : map.entrySet()) {
+                    final ItemStack input = ModRecipeBridge.toItemStack(entry.getKey());
+                    final ItemStack output = ModRecipeBridge.toItemStack(entry.getValue());
+                    reg += ModRecipeBridge.tryDeriveFromInput(output, input, "AbyssalCraft-Engraver");
                 }
-                logReflect("AbyssalCraft", "Engraver: derived " + reg + " items");
+                ModRecipeBridge.logReflect("AbyssalCraft", "Engraver: derived " + reg + " items");
                 return reg;
             }
-        } catch (ClassNotFoundException e) {
-            logReflect("AbyssalCraft", "EngraverRecipes class not found");
-        } catch (Exception e) {
-            logReflectError("AbyssalCraft", "scanACEngraver", e);
+        } catch (final ClassNotFoundException e) {
+            ModRecipeBridge.logReflect("AbyssalCraft", "EngraverRecipes class not found");
+        } catch (final Exception e) {
+            ModRecipeBridge.logReflectError("AbyssalCraft", "scanACEngraver", e);
         }
         return 0;
     }
@@ -458,7 +471,7 @@ public final class ModRecipeBridge {
      * Scans AbyssalCraft Necronomicon Rituals via reflection.
      * Ritual classes: NecronomiconCreationRitual, NecronomiconInfusionRitual
      * (both extend NecronomiconRitual, @since mod version 1.4).
-     *
+     * <p>
      * Strategy:
      * 1. Try to find a ritual registry via AbyssalCraftAPI static fields/methods
      * (e.g. getRituals(), rituals field, internal method handler).
@@ -466,7 +479,7 @@ public final class ModRecipeBridge {
      * containing ritual objects (class name contains "Ritual").
      * 3. For each ritual object, delegate to processRitualObject() which tries:
      * getItem() for output, getOfferings() for Object[] inputs, getSacrifice() for Object input.
-     *
+     * <p>
      * 通过反射扫描深渊国度死灵之书仪式。
      * 策略：
      * 1. 尝试通过 AbyssalCraftAPI 的静态字段/方法找到仪式注册表
@@ -475,18 +488,18 @@ public final class ModRecipeBridge {
      */
     private static int scanACRituals() {
         int registered = 0;
-        List<Object> ritualObjs = new ArrayList<>();
+        final List<Object> ritualObjs = new ArrayList<>();
 
         try {
-            Class<?> apiClass = Class.forName("com.shinoow.abyssalcraft.api.AbyssalCraftAPI");
+            final Class<?> apiClass = Class.forName("com.shinoow.abyssalcraft.api.AbyssalCraftAPI");
 
             // Phase 0: Dump all static methods and fields for diagnostics (skipped when skipDiagnosticDumps)
             // 阶段0：转储所有静态方法和字段用于诊断（配置 skipDiagnosticDumps 时跳过以加快加载）
             if (!ThaumicAllAspect.skipDiagnosticDumps) {
-                logReflect("AbyssalCraft", "--- API class dump (methods) ---");
-                for (Method m : apiClass.getDeclaredMethods()) {
+                ModRecipeBridge.logReflect("AbyssalCraft", "--- API class dump (methods) ---");
+                for (final Method m : apiClass.getDeclaredMethods()) {
                     if (Modifier.isStatic(m.getModifiers())) {
-                        logReflect(
+                        ModRecipeBridge.logReflect(
                             "AbyssalCraft",
                             "  static method: " + m.getName()
                                 + "() -> "
@@ -494,19 +507,19 @@ public final class ModRecipeBridge {
                                     .getSimpleName());
                     }
                 }
-                logReflect("AbyssalCraft", "--- API class dump (fields) ---");
-                for (Field f : apiClass.getDeclaredFields()) {
+                ModRecipeBridge.logReflect("AbyssalCraft", "--- API class dump (fields) ---");
+                for (final Field f : apiClass.getDeclaredFields()) {
                     if (Modifier.isStatic(f.getModifiers())) {
-                        String typeName = f.getType()
+                        final String typeName = f.getType()
                             .getSimpleName();
                         String valInfo = "";
                         try {
                             f.setAccessible(true);
-                            Object val = f.get(null);
+                            final Object val = f.get(null);
                             if (val instanceof List) {
-                                List<?> list = (List<?>) val;
+                                final List<?> list = (List<?>) val;
                                 valInfo = " (List size=" + list.size();
-                                if (!list.isEmpty() && list.get(0) != null) {
+                                if (!list.isEmpty() && null != list.get(0)) {
                                     valInfo += ", element[0]=" + list.get(0)
                                         .getClass()
                                         .getName();
@@ -514,95 +527,96 @@ public final class ModRecipeBridge {
                                 valInfo += ")";
                             } else if (val instanceof Map) {
                                 valInfo = " (Map size=" + ((Map<?, ?>) val).size() + ")";
-                            } else if (val != null) {
+                            } else if (null != val) {
                                 valInfo = " = " + val.getClass()
                                     .getName();
                             } else {
                                 valInfo = " = null";
                             }
-                        } catch (Exception ex) {
+                        } catch (final Exception ex) {
                             valInfo = " (access error: " + ex.getMessage() + ")";
                         }
-                        logReflect("AbyssalCraft", "  static field: " + f.getName() + " : " + typeName + valInfo);
+                        ModRecipeBridge
+                            .logReflect("AbyssalCraft", "  static field: " + f.getName() + " : " + typeName + valInfo);
                     }
                 }
-                logReflect("AbyssalCraft", "--- end API dump ---");
+                ModRecipeBridge.logReflect("AbyssalCraft", "--- end API dump ---");
             }
 
             // Phase 1: Try direct getter methods for ritual lists
-            for (String mName : new String[] { "getRituals", "getCreationRituals", "getInfusionRituals",
+            for (final String mName : new String[] { "getRituals", "getCreationRituals", "getInfusionRituals",
                 "getNecronomiconRituals", "getRitualList" }) {
                 try {
-                    Method m = apiClass.getMethod(mName);
+                    final Method m = apiClass.getMethod(mName);
                     if (Modifier.isStatic(m.getModifiers())) {
-                        Object result = m.invoke(null);
+                        final Object result = m.invoke(null);
                         if (result instanceof List) {
-                            List<?> list = (List<?>) result;
-                            logReflect(
+                            final List<?> list = (List<?>) result;
+                            ModRecipeBridge.logReflect(
                                 "AbyssalCraft",
                                 "AbyssalCraftAPI." + mName + "() -> List (size=" + list.size() + ")");
-                            for (Object obj : list) {
-                                if (obj != null) ritualObjs.add(obj);
+                            for (final Object obj : list) {
+                                if (null != obj) ritualObjs.add(obj);
                             }
                         } else if (result instanceof Map) {
-                            Map<?, ?> map = (Map<?, ?>) result;
-                            logReflect(
+                            final Map<?, ?> map = (Map<?, ?>) result;
+                            ModRecipeBridge.logReflect(
                                 "AbyssalCraft",
                                 "AbyssalCraftAPI." + mName + "() -> Map (size=" + map.size() + ")");
-                            for (Object obj : map.values()) {
-                                if (obj != null) ritualObjs.add(obj);
+                            for (final Object obj : map.values()) {
+                                if (null != obj) ritualObjs.add(obj);
                             }
                         }
                     }
-                } catch (NoSuchMethodException ignored) {
-                    logReflect("AbyssalCraft", "AbyssalCraftAPI." + mName + "() not found");
-                } catch (Exception e) {
-                    logReflectError("AbyssalCraft", "AbyssalCraftAPI." + mName + "()", e);
+                } catch (final NoSuchMethodException ignored) {
+                    ModRecipeBridge.logReflect("AbyssalCraft", "AbyssalCraftAPI." + mName + "() not found");
+                } catch (final Exception e) {
+                    ModRecipeBridge.logReflectError("AbyssalCraft", "AbyssalCraftAPI." + mName + "()", e);
                 }
             }
 
             // Phase 2: Scan ALL static List/Map/array fields for ritual-like objects
             if (ritualObjs.isEmpty()) {
-                logReflect("AbyssalCraft", "No direct ritual getter found, scanning static fields...");
-                for (Field f : apiClass.getDeclaredFields()) {
+                ModRecipeBridge.logReflect("AbyssalCraft", "No direct ritual getter found, scanning static fields...");
+                for (final Field f : apiClass.getDeclaredFields()) {
                     if (!Modifier.isStatic(f.getModifiers())) continue;
                     try {
                         f.setAccessible(true);
-                        Object val = f.get(null);
+                        final Object val = f.get(null);
                         if (val instanceof List) {
-                            List<?> list = (List<?>) val;
-                            for (Object obj : list) {
-                                if (obj != null && isRitualLike(obj)) {
+                            final List<?> list = (List<?>) val;
+                            for (final Object obj : list) {
+                                if (null != obj && ModRecipeBridge.isRitualLike(obj)) {
                                     ritualObjs.add(obj);
                                 }
                             }
                             if (!ritualObjs.isEmpty()) {
-                                logReflect(
+                                ModRecipeBridge.logReflect(
                                     "AbyssalCraft",
                                     "Found " + ritualObjs.size() + " ritual objects in field '" + f.getName() + "'");
                             }
                         } else if (val instanceof Map) {
-                            Map<?, ?> map = (Map<?, ?>) val;
-                            for (Object obj : map.values()) {
-                                if (obj != null && isRitualLike(obj)) {
+                            final Map<?, ?> map = (Map<?, ?>) val;
+                            for (final Object obj : map.values()) {
+                                if (null != obj && ModRecipeBridge.isRitualLike(obj)) {
                                     ritualObjs.add(obj);
                                 }
                             }
                             if (!ritualObjs.isEmpty()) {
-                                logReflect(
+                                ModRecipeBridge.logReflect(
                                     "AbyssalCraft",
                                     "Found " + ritualObjs.size() + " ritual objects in field '" + f.getName() + "'");
                             }
-                        } else if (val != null && val.getClass()
+                        } else if (null != val && val.getClass()
                             .isArray()) {
-                                Object[] arr = (Object[]) val;
-                                for (Object obj : arr) {
-                                    if (obj != null && isRitualLike(obj)) {
+                                final Object[] arr = (Object[]) val;
+                                for (final Object obj : arr) {
+                                    if (null != obj && ModRecipeBridge.isRitualLike(obj)) {
                                         ritualObjs.add(obj);
                                     }
                                 }
                                 if (!ritualObjs.isEmpty()) {
-                                    logReflect(
+                                    ModRecipeBridge.logReflect(
                                         "AbyssalCraft",
                                         "Found " + ritualObjs.size()
                                             + " ritual objects in array field '"
@@ -610,8 +624,8 @@ public final class ModRecipeBridge {
                                             + "'");
                                 }
                             }
-                    } catch (Exception e) {
-                        logReflectError("AbyssalCraft", "field " + f.getName(), e);
+                    } catch (final Exception e) {
+                        ModRecipeBridge.logReflectError("AbyssalCraft", "field " + f.getName(), e);
                     }
                 }
             }
@@ -619,59 +633,59 @@ public final class ModRecipeBridge {
             // Phase 3: Try internal method handler
             if (ritualObjs.isEmpty()) {
                 try {
-                    Method getHandler = apiClass.getMethod("getInternalMethodHandler");
+                    final Method getHandler = apiClass.getMethod("getInternalMethodHandler");
                     if (Modifier.isStatic(getHandler.getModifiers())) {
-                        Object handler = getHandler.invoke(null);
-                        if (handler != null) {
-                            logReflect(
+                        final Object handler = getHandler.invoke(null);
+                        if (null != handler) {
+                            ModRecipeBridge.logReflect(
                                 "AbyssalCraft",
                                 "Got InternalMethodHandler: " + handler.getClass()
                                     .getName());
-                            for (String mName : new String[] { "getRituals", "getAllRituals", "getRitualList" }) {
+                            for (final String mName : new String[] { "getRituals", "getAllRituals", "getRitualList" }) {
                                 try {
-                                    Method m = handler.getClass()
+                                    final Method m = handler.getClass()
                                         .getMethod(mName);
-                                    Object result = m.invoke(handler);
+                                    final Object result = m.invoke(handler);
                                     if (result instanceof List) {
-                                        List<?> list = (List<?>) result;
-                                        for (Object obj : list) {
-                                            if (obj != null) ritualObjs.add(obj);
+                                        final List<?> list = (List<?>) result;
+                                        for (final Object obj : list) {
+                                            if (null != obj) ritualObjs.add(obj);
                                         }
-                                        logReflect(
+                                        ModRecipeBridge.logReflect(
                                             "AbyssalCraft",
                                             "handler." + mName + "() -> " + ritualObjs.size() + " rituals");
                                     }
-                                } catch (NoSuchMethodException ignored) {} catch (Exception e) {
-                                    logReflectError("AbyssalCraft", "handler." + mName + "()", e);
+                                } catch (final NoSuchMethodException ignored) {} catch (final Exception e) {
+                                    ModRecipeBridge.logReflectError("AbyssalCraft", "handler." + mName + "()", e);
                                 }
                             }
                             if (ritualObjs.isEmpty()) {
-                                for (Field f : handler.getClass()
+                                for (final Field f : handler.getClass()
                                     .getDeclaredFields()) {
                                     try {
                                         f.setAccessible(true);
-                                        Object val = f.get(handler);
+                                        final Object val = f.get(handler);
                                         if (val instanceof List) {
-                                            for (Object obj : (List<?>) val) {
-                                                if (obj != null && isRitualLike(obj)) {
+                                            for (final Object obj : (List<?>) val) {
+                                                if (null != obj && ModRecipeBridge.isRitualLike(obj)) {
                                                     ritualObjs.add(obj);
                                                 }
                                             }
                                         }
-                                    } catch (Exception ignored) {}
+                                    } catch (final Exception ignored) {}
                                 }
                                 if (!ritualObjs.isEmpty()) {
-                                    logReflect(
+                                    ModRecipeBridge.logReflect(
                                         "AbyssalCraft",
                                         "Found " + ritualObjs.size() + " ritual objects in handler fields");
                                 }
                             }
                         }
                     }
-                } catch (NoSuchMethodException ignored) {
-                    logReflect("AbyssalCraft", "getInternalMethodHandler() not found");
-                } catch (Exception e) {
-                    logReflectError("AbyssalCraft", "getInternalMethodHandler()", e);
+                } catch (final NoSuchMethodException ignored) {
+                    ModRecipeBridge.logReflect("AbyssalCraft", "getInternalMethodHandler() not found");
+                } catch (final Exception e) {
+                    ModRecipeBridge.logReflectError("AbyssalCraft", "getInternalMethodHandler()", e);
                 }
             }
 
@@ -680,52 +694,55 @@ public final class ModRecipeBridge {
             // Rituals are stored inside this instance, not as a static List on the class.
             // RitualRegistry 是单例模式，仪式列表存储在实例的内部字段中，而非类的静态 List。
             if (ritualObjs.isEmpty()) {
-                logReflect("AbyssalCraft", "Phase 4: Scanning RitualRegistry singleton...");
+                ModRecipeBridge.logReflect("AbyssalCraft", "Phase 4: Scanning RitualRegistry singleton...");
                 try {
-                    Class<?> registryClass = Class.forName("com.shinoow.abyssalcraft.api.ritual.RitualRegistry");
+                    final Class<?> registryClass = Class.forName("com.shinoow.abyssalcraft.api.ritual.RitualRegistry");
                     Object registry = null;
 
                     try {
-                        Field instField = registryClass.getDeclaredField("instance");
+                        final Field instField = registryClass.getDeclaredField("instance");
                         instField.setAccessible(true);
                         registry = instField.get(null);
-                        logReflect(
+                        ModRecipeBridge.logReflect(
                             "AbyssalCraft",
-                            "RitualRegistry.instance -> " + (registry != null ? registry.getClass()
+                            "RitualRegistry.instance -> " + (null != registry ? registry.getClass()
                                 .getName() : "null"));
-                    } catch (NoSuchFieldException e) {
-                        logReflect("AbyssalCraft", "RitualRegistry.instance field not found, trying getInstance()");
+                    } catch (final NoSuchFieldException e) {
+                        ModRecipeBridge.logReflect(
+                            "AbyssalCraft",
+                            "RitualRegistry.instance field not found, trying getInstance()");
                         try {
-                            Method m = registryClass.getMethod("getInstance");
+                            final Method m = registryClass.getMethod("getInstance");
                             registry = m.invoke(null);
-                        } catch (NoSuchMethodException ignored) {}
+                        } catch (final NoSuchMethodException ignored) {}
                     }
 
-                    if (registry != null) {
+                    if (null != registry) {
                         if (!ThaumicAllAspect.skipDiagnosticDumps) {
-                            logReflect("AbyssalCraft", "--- RitualRegistry instance methods ---");
-                            for (Method m : registry.getClass()
+                            ModRecipeBridge.logReflect("AbyssalCraft", "--- RitualRegistry instance methods ---");
+                            for (final Method m : registry.getClass()
                                 .getDeclaredMethods()) {
-                                logReflect(
+                                ModRecipeBridge.logReflect(
                                     "AbyssalCraft",
                                     "  method: " + m.getName()
                                         + "() -> "
                                         + m.getReturnType()
                                             .getSimpleName());
                             }
-                            logReflect("AbyssalCraft", "--- RitualRegistry instance fields ---");
-                            for (Field f : registry.getClass()
+                            ModRecipeBridge.logReflect("AbyssalCraft", "--- RitualRegistry instance fields ---");
+                            for (final Field f : registry.getClass()
                                 .getDeclaredFields()) {
                                 try {
                                     f.setAccessible(true);
-                                    Object val = Modifier.isStatic(f.getModifiers()) ? f.get(null) : f.get(registry);
+                                    final Object val = Modifier.isStatic(f.getModifiers()) ? f.get(null)
+                                        : f.get(registry);
                                     String info = f.getName() + " : "
                                         + f.getType()
                                             .getSimpleName();
                                     if (val instanceof List) {
-                                        List<?> list = (List<?>) val;
+                                        final List<?> list = (List<?>) val;
                                         info += " (List size=" + list.size();
-                                        if (!list.isEmpty() && list.get(0) != null) {
+                                        if (!list.isEmpty() && null != list.get(0)) {
                                             info += ", element[0]=" + list.get(0)
                                                 .getClass()
                                                 .getName();
@@ -733,68 +750,69 @@ public final class ModRecipeBridge {
                                         info += ")";
                                     } else if (val instanceof Map) {
                                         info += " (Map size=" + ((Map<?, ?>) val).size() + ")";
-                                    } else if (val != null) {
+                                    } else if (null != val) {
                                         info += " = " + val.getClass()
                                             .getName();
                                     }
-                                    logReflect("AbyssalCraft", "  field: " + info);
-                                } catch (Exception ex) {
-                                    logReflect(
+                                    ModRecipeBridge.logReflect("AbyssalCraft", "  field: " + info);
+                                } catch (final Exception ex) {
+                                    ModRecipeBridge.logReflect(
                                         "AbyssalCraft",
                                         "  field: " + f.getName() + " (error: " + ex.getMessage() + ")");
                                 }
                             }
-                            logReflect("AbyssalCraft", "--- end RitualRegistry dump ---");
+                            ModRecipeBridge.logReflect("AbyssalCraft", "--- end RitualRegistry dump ---");
                         }
 
                         // Try getter methods on the singleton
-                        for (String mName : new String[] { "getRituals", "getRecipes", "getRitualList", "getAllRituals",
-                            "getCreationRituals", "getInfusionRituals", "getRegisteredRituals" }) {
+                        for (final String mName : new String[] { "getRituals", "getRecipes", "getRitualList",
+                            "getAllRituals", "getCreationRituals", "getInfusionRituals", "getRegisteredRituals" }) {
                             try {
-                                Method m = registry.getClass()
+                                final Method m = registry.getClass()
                                     .getMethod(mName);
-                                Object result = m.invoke(registry);
+                                final Object result = m.invoke(registry);
                                 if (result instanceof List) {
-                                    List<?> list = (List<?>) result;
-                                    logReflect(
+                                    final List<?> list = (List<?>) result;
+                                    ModRecipeBridge.logReflect(
                                         "AbyssalCraft",
                                         "RitualRegistry." + mName + "() -> List (size=" + list.size() + ")");
-                                    for (Object obj : list) {
-                                        if (obj != null) ritualObjs.add(obj);
+                                    for (final Object obj : list) {
+                                        if (null != obj) ritualObjs.add(obj);
                                     }
                                     if (!ritualObjs.isEmpty()) break;
                                 } else if (result instanceof Map) {
-                                    Map<?, ?> map = (Map<?, ?>) result;
-                                    logReflect(
+                                    final Map<?, ?> map = (Map<?, ?>) result;
+                                    ModRecipeBridge.logReflect(
                                         "AbyssalCraft",
                                         "RitualRegistry." + mName + "() -> Map (size=" + map.size() + ")");
-                                    for (Object obj : map.values()) {
-                                        if (obj != null) ritualObjs.add(obj);
+                                    for (final Object obj : map.values()) {
+                                        if (null != obj) ritualObjs.add(obj);
                                     }
                                     if (!ritualObjs.isEmpty()) break;
                                 }
-                            } catch (NoSuchMethodException ignored) {} catch (Exception e) {
-                                logReflectError("AbyssalCraft", "RitualRegistry." + mName + "()", e);
+                            } catch (final NoSuchMethodException ignored) {} catch (final Exception e) {
+                                ModRecipeBridge.logReflectError("AbyssalCraft", "RitualRegistry." + mName + "()", e);
                             }
                         }
 
                         // Scan instance fields for List/Map containing ritual-like objects
                         if (ritualObjs.isEmpty()) {
-                            logReflect("AbyssalCraft", "No getter found, scanning instance fields...");
-                            for (Field f : registry.getClass()
+                            ModRecipeBridge.logReflect("AbyssalCraft", "No getter found, scanning instance fields...");
+                            for (final Field f : registry.getClass()
                                 .getDeclaredFields()) {
                                 try {
                                     f.setAccessible(true);
-                                    Object val = Modifier.isStatic(f.getModifiers()) ? f.get(null) : f.get(registry);
+                                    final Object val = Modifier.isStatic(f.getModifiers()) ? f.get(null)
+                                        : f.get(registry);
                                     if (val instanceof List) {
-                                        List<?> list = (List<?>) val;
+                                        final List<?> list = (List<?>) val;
                                         if (!list.isEmpty()) {
-                                            Object first = list.get(0);
-                                            if (first != null && isRitualLike(first)) {
-                                                for (Object obj : list) {
-                                                    if (obj != null) ritualObjs.add(obj);
+                                            final Object first = list.get(0);
+                                            if (null != first && ModRecipeBridge.isRitualLike(first)) {
+                                                for (final Object obj : list) {
+                                                    if (null != obj) ritualObjs.add(obj);
                                                 }
-                                                logReflect(
+                                                ModRecipeBridge.logReflect(
                                                     "AbyssalCraft",
                                                     "Found " + ritualObjs.size()
                                                         + " rituals in field '"
@@ -804,14 +822,14 @@ public final class ModRecipeBridge {
                                             }
                                         }
                                     } else if (val instanceof Map) {
-                                        Map<?, ?> map = (Map<?, ?>) val;
-                                        for (Object obj : map.values()) {
-                                            if (obj != null && isRitualLike(obj)) {
+                                        final Map<?, ?> map = (Map<?, ?>) val;
+                                        for (final Object obj : map.values()) {
+                                            if (null != obj && ModRecipeBridge.isRitualLike(obj)) {
                                                 ritualObjs.add(obj);
                                             }
                                         }
                                         if (!ritualObjs.isEmpty()) {
-                                            logReflect(
+                                            ModRecipeBridge.logReflect(
                                                 "AbyssalCraft",
                                                 "Found " + ritualObjs.size()
                                                     + " rituals in map field '"
@@ -820,25 +838,27 @@ public final class ModRecipeBridge {
                                             break;
                                         }
                                     }
-                                } catch (Exception ignored) {}
+                                } catch (final Exception ignored) {}
                             }
                         }
 
                         // Last resort: collect ALL objects from any non-empty List field
                         if (ritualObjs.isEmpty()) {
-                            logReflect("AbyssalCraft", "No ritual-like fields, scanning ALL List fields...");
-                            for (Field f : registry.getClass()
+                            ModRecipeBridge
+                                .logReflect("AbyssalCraft", "No ritual-like fields, scanning ALL List fields...");
+                            for (final Field f : registry.getClass()
                                 .getDeclaredFields()) {
                                 try {
                                     f.setAccessible(true);
-                                    Object val = Modifier.isStatic(f.getModifiers()) ? f.get(null) : f.get(registry);
+                                    final Object val = Modifier.isStatic(f.getModifiers()) ? f.get(null)
+                                        : f.get(registry);
                                     if (val instanceof List) {
-                                        List<?> list = (List<?>) val;
+                                        final List<?> list = (List<?>) val;
                                         if (!list.isEmpty()) {
-                                            for (Object obj : list) {
-                                                if (obj != null) ritualObjs.add(obj);
+                                            for (final Object obj : list) {
+                                                if (null != obj) ritualObjs.add(obj);
                                             }
-                                            logReflect(
+                                            ModRecipeBridge.logReflect(
                                                 "AbyssalCraft",
                                                 "Collected " + ritualObjs.size()
                                                     + " objects from field '"
@@ -851,42 +871,42 @@ public final class ModRecipeBridge {
                                             break;
                                         }
                                     }
-                                } catch (Exception ignored) {}
+                                } catch (final Exception ignored) {}
                             }
                         }
                     } else {
-                        logReflect("AbyssalCraft", "RitualRegistry singleton is null");
+                        ModRecipeBridge.logReflect("AbyssalCraft", "RitualRegistry singleton is null");
                     }
-                } catch (ClassNotFoundException e) {
-                    logReflect("AbyssalCraft", "RitualRegistry class not found");
-                } catch (Exception e) {
-                    logReflectError("AbyssalCraft", "Phase 4: RitualRegistry", e);
+                } catch (final ClassNotFoundException e) {
+                    ModRecipeBridge.logReflect("AbyssalCraft", "RitualRegistry class not found");
+                } catch (final Exception e) {
+                    ModRecipeBridge.logReflectError("AbyssalCraft", "Phase 4: RitualRegistry", e);
                 }
             }
-        } catch (ClassNotFoundException e) {
-            logReflect("AbyssalCraft", "AbyssalCraftAPI class not found for ritual scanning");
+        } catch (final ClassNotFoundException e) {
+            ModRecipeBridge.logReflect("AbyssalCraft", "AbyssalCraftAPI class not found for ritual scanning");
             return 0;
-        } catch (Exception e) {
-            logReflectError("AbyssalCraft", "scanACRituals", e);
+        } catch (final Exception e) {
+            ModRecipeBridge.logReflectError("AbyssalCraft", "scanACRituals", e);
         }
 
         // Process all collected ritual objects
         if (ritualObjs.isEmpty()) {
-            logReflect("AbyssalCraft", "No Necronomicon ritual objects found");
+            ModRecipeBridge.logReflect("AbyssalCraft", "No Necronomicon ritual objects found");
         } else {
-            logReflect("AbyssalCraft", "Processing " + ritualObjs.size() + " ritual objects...");
-            for (Object ritual : ritualObjs) {
+            ModRecipeBridge.logReflect("AbyssalCraft", "Processing " + ritualObjs.size() + " ritual objects...");
+            for (final Object ritual : ritualObjs) {
                 try {
-                    registered += processRitualObject(ritual, "AbyssalCraft-Ritual");
-                } catch (Exception e) {
-                    logReflectError(
+                    registered += ModRecipeBridge.processRitualObject(ritual, "AbyssalCraft-Ritual");
+                } catch (final Exception e) {
+                    ModRecipeBridge.logReflectError(
                         "AbyssalCraft",
                         "processRitualObject for " + ritual.getClass()
                             .getName(),
                         e);
                 }
             }
-            logReflect("AbyssalCraft", "Rituals: derived " + registered + " items");
+            ModRecipeBridge.logReflect("AbyssalCraft", "Rituals: derived " + registered + " items");
         }
 
         return registered;
@@ -895,16 +915,16 @@ public final class ModRecipeBridge {
     /**
      * Checks if an object looks like a ritual (class name contains "ritual", "rite", "necro",
      * or it has ritual-like methods such as getOfferings/getSacrifice/getItem).
-     *
+     * <p>
      * 检查对象是否看起来像仪式（类名包含 ritual/rite/necro，
      * 或具有 getOfferings/getSacrifice/getItem 等仪式方法）。
      */
-    private static boolean isRitualLike(Object obj) {
-        String cn = obj.getClass()
+    private static boolean isRitualLike(final Object obj) {
+        final String cn = obj.getClass()
             .getName()
             .toLowerCase();
         if (cn.contains("ritual") || cn.contains("rite") || cn.contains("necro")) return true;
-        return hasRitualMethods(obj);
+        return ModRecipeBridge.hasRitualMethods(obj);
     }
 
     // ==================== Witchery (巫术) ====================
@@ -912,17 +932,18 @@ public final class ModRecipeBridge {
     /**
      * Scans Witchery's recipe systems: Kettle (大釜), Distillery (蒸馏器),
      * Spinning Wheel (纺车), Oven (巫术烤炉), and Rite rituals (仪式).
-     *
+     * <p>
      * Witchery stores recipes in singleton managers or static registries.
      * Kettle/Distillery recipes typically have getOutput()/getInputs() methods.
      * Rites are ritual-like objects with offerings + output.
-     *
+     * <p>
      * 扫描巫术的配方系统：大釜、蒸馏器、纺车、巫术烤炉和仪式。
      * 巫术将配方存储在单例管理器或静态注册表中。
      */
     private static int scanWitchery() {
-        Class<?> detected = tryLoadClass("com.emoniph.witchery.Witchery", "com.emoniph.witchery.WitcheryAPI");
-        if (detected == null) return 0;
+        final Class<?> detected = ModRecipeBridge
+            .tryLoadClass("com.emoniph.witchery.Witchery", "com.emoniph.witchery.WitcheryAPI");
+        if (null == detected) return 0;
 
         int registered = 0;
         ModFileLogger.scan(tr("[Mod recipes]") + " ========== Witchery ==========");
@@ -930,56 +951,59 @@ public final class ModRecipeBridge {
 
         // Kettle recipes (大釜 — the main Witchery crafting station)
         // 大釜配方（巫术的主要合成站）
-        String[] kettleClasses = { "com.emoniph.witchery.crafting.KettleRecipes",
+        final String[] kettleClasses = { "com.emoniph.witchery.crafting.KettleRecipes",
             "com.emoniph.witchery.brewing.KettleRecipes", "com.emoniph.witchery.api.KettleRecipes" };
-        for (String c : kettleClasses) registered += tryExtractFromClass(c, "Witchery-Kettle");
+        for (final String c : kettleClasses) registered += ModRecipeBridge.tryExtractFromClass(c, "Witchery-Kettle");
 
         // Distillery (蒸馏器)
-        String[] distilleryClasses = { "com.emoniph.witchery.crafting.DistilleryRecipes",
+        final String[] distilleryClasses = { "com.emoniph.witchery.crafting.DistilleryRecipes",
             "com.emoniph.witchery.api.DistilleryRecipes" };
-        for (String c : distilleryClasses) registered += tryExtractFromClass(c, "Witchery-Distillery");
+        for (final String c : distilleryClasses)
+            registered += ModRecipeBridge.tryExtractFromClass(c, "Witchery-Distillery");
 
         // Spinning Wheel (纺车)
-        String[] spinningClasses = { "com.emoniph.witchery.crafting.SpinningRecipes",
+        final String[] spinningClasses = { "com.emoniph.witchery.crafting.SpinningRecipes",
             "com.emoniph.witchery.api.SpinningRecipes" };
-        for (String c : spinningClasses) registered += tryExtractFromClass(c, "Witchery-Spinning");
+        for (final String c : spinningClasses)
+            registered += ModRecipeBridge.tryExtractFromClass(c, "Witchery-Spinning");
 
         // Oven (巫术烤炉)
-        String[] ovenClasses = { "com.emoniph.witchery.crafting.WitchesOvenRecipes",
+        final String[] ovenClasses = { "com.emoniph.witchery.crafting.WitchesOvenRecipes",
             "com.emoniph.witchery.crafting.OvenRecipes" };
-        for (String c : ovenClasses) registered += tryExtractFromClass(c, "Witchery-Oven");
+        for (final String c : ovenClasses) registered += ModRecipeBridge.tryExtractFromClass(c, "Witchery-Oven");
 
         // Rite / Ritual system (仪式系统)
         // Witchery's rites are stored in a registry; each rite may have offerings + output
         // 巫术的仪式存储在注册表中；每个仪式可能有祭品和产物
-        String[] riteClasses = { "com.emoniph.witchery.ritual.RiteRegistry", "com.emoniph.witchery.ritual.Rites",
+        final String[] riteClasses = { "com.emoniph.witchery.ritual.RiteRegistry", "com.emoniph.witchery.ritual.Rites",
             "com.emoniph.witchery.api.RiteRegistry" };
-        for (String className : riteClasses) {
+        for (final String className : riteClasses) {
             try {
-                Class<?> riteClass = Class.forName(className);
-                logReflect("Witchery-Rite", "loaded rite class: " + className);
-                List<Object> ritualObjs = new ArrayList<>();
-                collectRitualObjectsFromClass(riteClass, ritualObjs, "Witchery-Rite");
-                for (Object rite : ritualObjs) {
-                    if (rite == null) continue;
+                final Class<?> riteClass = Class.forName(className);
+                ModRecipeBridge.logReflect("Witchery-Rite", "loaded rite class: " + className);
+                final List<Object> ritualObjs = new ArrayList<>();
+                ModRecipeBridge.collectRitualObjectsFromClass(riteClass, ritualObjs, "Witchery-Rite");
+                for (final Object rite : ritualObjs) {
+                    if (null == rite) continue;
                     try {
-                        registered += processRitualObject(rite, "Witchery-Rite");
-                    } catch (Exception e) {
-                        logReflectError("Witchery-Rite", "processRitualObject", e);
+                        registered += ModRecipeBridge.processRitualObject(rite, "Witchery-Rite");
+                    } catch (final Exception e) {
+                        ModRecipeBridge.logReflectError("Witchery-Rite", "processRitualObject", e);
                     }
                 }
-                registered += extractRecipesFromClass(riteClass, "Witchery-Rite");
-            } catch (ClassNotFoundException e) {
-                logReflect("Witchery-Rite", "class not found: " + className);
+                registered += ModRecipeBridge.extractRecipesFromClass(riteClass, "Witchery-Rite");
+            } catch (final ClassNotFoundException e) {
+                ModRecipeBridge.logReflect("Witchery-Rite", "class not found: " + className);
             }
         }
 
         // Infusion (灌注)
-        String[] infusionClasses = { "com.emoniph.witchery.infusion.InfusionRecipes",
+        final String[] infusionClasses = { "com.emoniph.witchery.infusion.InfusionRecipes",
             "com.emoniph.witchery.crafting.InfusionRecipes" };
-        for (String c : infusionClasses) registered += tryExtractFromClass(c, "Witchery-Infusion");
+        for (final String c : infusionClasses)
+            registered += ModRecipeBridge.tryExtractFromClass(c, "Witchery-Infusion");
 
-        logModSummary("Witchery", registered);
+        ModRecipeBridge.logModSummary("Witchery", registered);
         return registered;
     }
 
@@ -988,69 +1012,71 @@ public final class ModRecipeBridge {
     /**
      * Scans Blood Magic's recipe systems: Blood Altar (血祭坛), Alchemy Table (炼金术台),
      * and Binding rituals (绑定仪式).
-     *
+     * <p>
      * Blood Magic uses static registries in its API package. Altar recipes map
      * input→output with tier/LP requirements. Alchemy recipes have input arrays.
-     *
+     * <p>
      * 扫描血魔法的配方系统：血祭坛、炼金术台和绑定仪式。
      * 血魔法在其 API 包中使用静态注册表。
      */
     private static int scanBloodMagic() {
-        Class<?> detected = tryLoadClass(
+        final Class<?> detected = ModRecipeBridge.tryLoadClass(
             "WayofTime.alchemicalWizardry.api.BloodMagicAPI",
             "WayofTime.alchemicalWizardry.BloodMagicAPI",
             "WayofTime.alchemicalWizardry.ModBloodMagic",
             "WayofTime.alchemicalWizardry.AlchemicalWizardry");
-        if (detected == null) return 0;
+        if (null == detected) return 0;
 
         int registered = 0;
         ModFileLogger.scan(tr("[Mod recipes]") + " ========== Blood Magic ==========");
         ModFileLogger.info("[ThaumicAllAspect] " + tr("[Mod recipes]") + " Blood Magic " + tr("detected, scanning"));
 
         // Blood Altar recipes (血祭坛配方)
-        String[] altarClasses = { "WayofTime.alchemicalWizardry.api.altarRecipe.AltarRecipeRegistry",
+        final String[] altarClasses = { "WayofTime.alchemicalWizardry.api.altarRecipe.AltarRecipeRegistry",
             "WayofTime.alchemicalWizardry.api.altar.AltarRecipeRegistry",
             "WayofTime.alchemicalWizardry.common.AltarRecipeRegistry" };
-        for (String c : altarClasses) registered += tryExtractFromClass(c, "BloodMagic-Altar");
+        for (final String c : altarClasses) registered += ModRecipeBridge.tryExtractFromClass(c, "BloodMagic-Altar");
 
         // Alchemy recipes (炼金术配方)
-        String[] alchemyClasses = { "WayofTime.alchemicalWizardry.api.alchemy.AlchemyRecipeRegistry",
+        final String[] alchemyClasses = { "WayofTime.alchemicalWizardry.api.alchemy.AlchemyRecipeRegistry",
             "WayofTime.alchemicalWizardry.api.AlchemyRecipeRegistry" };
-        for (String c : alchemyClasses) registered += tryExtractFromClass(c, "BloodMagic-Alchemy");
+        for (final String c : alchemyClasses)
+            registered += ModRecipeBridge.tryExtractFromClass(c, "BloodMagic-Alchemy");
 
         // Binding recipes (绑定配方)
-        String[] bindingClasses = { "WayofTime.alchemicalWizardry.api.bindingRecipe.BindingRecipeRegistry",
+        final String[] bindingClasses = { "WayofTime.alchemicalWizardry.api.bindingRecipe.BindingRecipeRegistry",
             "WayofTime.alchemicalWizardry.api.binding.BindingRecipeRegistry" };
-        for (String c : bindingClasses) registered += tryExtractFromClass(c, "BloodMagic-Binding");
+        for (final String c : bindingClasses)
+            registered += ModRecipeBridge.tryExtractFromClass(c, "BloodMagic-Binding");
 
         // Also try the main API class fields/methods
         // 也尝试主 API 类的字段/方法
-        registered += extractRecipesFromClass(detected, "BloodMagic");
+        registered += ModRecipeBridge.extractRecipesFromClass(detected, "BloodMagic");
 
         // Ritual-like objects (仪式类对象)
-        String[] ritualClasses = { "WayofTime.alchemicalWizardry.api.ritual.RitualRegistry",
+        final String[] ritualClasses = { "WayofTime.alchemicalWizardry.api.ritual.RitualRegistry",
             "WayofTime.alchemicalWizardry.api.rituals.RitualRegistry" };
-        for (String className : ritualClasses) {
+        for (final String className : ritualClasses) {
             try {
-                Class<?> ritualClass = Class.forName(className);
-                logReflect("BloodMagic-Ritual", "loaded: " + className);
-                List<Object> ritualObjs = new ArrayList<>();
-                collectRitualObjectsFromClass(ritualClass, ritualObjs, "BloodMagic-Ritual");
-                for (Object r : ritualObjs) {
-                    if (r == null) continue;
+                final Class<?> ritualClass = Class.forName(className);
+                ModRecipeBridge.logReflect("BloodMagic-Ritual", "loaded: " + className);
+                final List<Object> ritualObjs = new ArrayList<>();
+                ModRecipeBridge.collectRitualObjectsFromClass(ritualClass, ritualObjs, "BloodMagic-Ritual");
+                for (final Object r : ritualObjs) {
+                    if (null == r) continue;
                     try {
-                        registered += processRitualObject(r, "BloodMagic-Ritual");
-                    } catch (Exception e) {
-                        logReflectError("BloodMagic-Ritual", "processRitualObject", e);
+                        registered += ModRecipeBridge.processRitualObject(r, "BloodMagic-Ritual");
+                    } catch (final Exception e) {
+                        ModRecipeBridge.logReflectError("BloodMagic-Ritual", "processRitualObject", e);
                     }
                 }
-                registered += extractRecipesFromClass(ritualClass, "BloodMagic-Ritual");
-            } catch (ClassNotFoundException e) {
-                logReflect("BloodMagic-Ritual", "class not found: " + className);
+                registered += ModRecipeBridge.extractRecipesFromClass(ritualClass, "BloodMagic-Ritual");
+            } catch (final ClassNotFoundException e) {
+                ModRecipeBridge.logReflect("BloodMagic-Ritual", "class not found: " + className);
             }
         }
 
-        logModSummary("Blood Magic", registered);
+        ModRecipeBridge.logModSummary("Blood Magic", registered);
         return registered;
     }
 
@@ -1059,19 +1085,18 @@ public final class ModRecipeBridge {
     /**
      * Scans Botania's recipe systems: Mana Infusion (魔力注入), Runic Altar (符文祭坛),
      * Petal Apothecary (花瓣炼药台), Elven Trade (精灵贸易).
-     *
+     * <p>
      * Botania stores recipes as static Lists in BotaniaAPI:
      * - manaInfusionRecipes, petalRecipes, runeAltarRecipes, elvenTradeRecipes
      * Each recipe object has getOutput() and getInputs() methods.
-     *
+     * <p>
      * 扫描植物魔法的配方系统：魔力注入、符文祭坛、花瓣炼药台、精灵贸易。
      * 植物魔法在 BotaniaAPI 中存储为静态 List。
      */
     private static int scanBotania() {
-        Class<?> apiClass = tryLoadClass(
-            "vazkii.botania.api.BotaniaAPI",
-            "vazkii.botania.api.recipe.RecipeManaInfusion");
-        if (apiClass == null) return 0;
+        final Class<?> apiClass = ModRecipeBridge
+            .tryLoadClass("vazkii.botania.api.BotaniaAPI", "vazkii.botania.api.recipe.RecipeManaInfusion");
+        if (null == apiClass) return 0;
 
         int registered = 0;
         ModFileLogger.scan(tr("[Mod recipes]") + " ========== Botania ==========");
@@ -1079,17 +1104,17 @@ public final class ModRecipeBridge {
 
         // BotaniaAPI has static List fields for each recipe type
         // BotaniaAPI 有每种配方类型的静态 List 字段
-        registered += extractRecipesFromClass(apiClass, "Botania");
+        registered += ModRecipeBridge.extractRecipesFromClass(apiClass, "Botania");
 
         // Also try specific recipe classes that may have their own static lists
         // 也尝试可能有自己静态列表的特定配方类
-        String[] recipeClasses = { "vazkii.botania.api.recipe.RecipeManaInfusion",
+        final String[] recipeClasses = { "vazkii.botania.api.recipe.RecipeManaInfusion",
             "vazkii.botania.api.recipe.RecipeRuneAltar", "vazkii.botania.api.recipe.RecipePetals",
             "vazkii.botania.api.recipe.RecipeElvenTrade", "vazkii.botania.api.recipe.RecipePureDaisy",
             "vazkii.botania.api.recipe.RecipeBrew" };
-        for (String c : recipeClasses) registered += tryExtractFromClass(c, "Botania");
+        for (final String c : recipeClasses) registered += ModRecipeBridge.tryExtractFromClass(c, "Botania");
 
-        logModSummary("Botania", registered);
+        ModRecipeBridge.logModSummary("Botania", registered);
         return registered;
     }
 
@@ -1098,19 +1123,19 @@ public final class ModRecipeBridge {
     /**
      * Scans Forestry's recipe systems: Carpenter (木工机), Centrifuge (离心机),
      * Squeezer (榨汁机), Fermenter (发酵机), Still (蒸馏器), Moistener (湿润器).
-     *
+     * <p>
      * Forestry uses RecipeManagers with static manager fields.
      * Each manager has getRecipes() returning a collection.
-     *
+     * <p>
      * 扫描林业的配方系统：木工机、离心机、榨汁机、发酵机、蒸馏器、湿润器。
      * 林业使用 RecipeManagers 及其静态管理器字段。
      */
     private static int scanForestry() {
-        Class<?> detected = tryLoadClass(
+        final Class<?> detected = ModRecipeBridge.tryLoadClass(
             "forestry.api.recipes.RecipeManagers",
             "forestry.api.recipes.ICarpenterManager",
             "forestry.Forestry");
-        if (detected == null) return 0;
+        if (null == detected) return 0;
 
         int registered = 0;
         ModFileLogger.scan(tr("[Mod recipes]") + " ========== Forestry ==========");
@@ -1118,16 +1143,16 @@ public final class ModRecipeBridge {
 
         // RecipeManagers has static fields for each machine type
         // RecipeManagers 有每种机器类型的静态字段
-        registered += extractRecipesFromClass(detected, "Forestry");
+        registered += ModRecipeBridge.extractRecipesFromClass(detected, "Forestry");
 
-        String[] managerClasses = { "forestry.api.recipes.RecipeManagers",
+        final String[] managerClasses = { "forestry.api.recipes.RecipeManagers",
             "forestry.factory.recipes.CarpenterRecipeManager", "forestry.factory.recipes.CentrifugeRecipeManager",
             "forestry.factory.recipes.FabricatorRecipeManager", "forestry.factory.recipes.FermenterRecipeManager",
             "forestry.factory.recipes.MoistenerRecipeManager", "forestry.factory.recipes.SqueezerRecipeManager",
             "forestry.factory.recipes.StillRecipeManager" };
-        for (String c : managerClasses) registered += tryExtractFromClass(c, "Forestry");
+        for (final String c : managerClasses) registered += ModRecipeBridge.tryExtractFromClass(c, "Forestry");
 
-        logModSummary("Forestry", registered);
+        ModRecipeBridge.logModSummary("Forestry", registered);
         return registered;
     }
 
@@ -1136,29 +1161,31 @@ public final class ModRecipeBridge {
     /**
      * Scans Tinkers' Construct's recipe systems: Smeltery (冶炼炉),
      * Casting Table/Basin (浇铸台/盆).
-     *
+     * <p>
      * TConstruct stores recipes in TConstructRegistry and specific recipe classes.
-     *
+     * <p>
      * 扫描匠魂的配方系统：冶炼炉、浇铸台/盆。
      * 匠魂在 TConstructRegistry 和特定配方类中存储配方。
      */
     private static int scanTinkersConstruct() {
-        Class<?> detected = tryLoadClass("tconstruct.library.TConstructRegistry", "tconstruct.TConstruct");
-        if (detected == null) return 0;
+        final Class<?> detected = ModRecipeBridge
+            .tryLoadClass("tconstruct.library.TConstructRegistry", "tconstruct.TConstruct");
+        if (null == detected) return 0;
 
         int registered = 0;
         ModFileLogger.scan(tr("[Mod recipes]") + " ========== Tinkers' Construct ==========");
         ModFileLogger
             .info("[ThaumicAllAspect] " + tr("[Mod recipes]") + " Tinkers' Construct " + tr("detected, scanning"));
 
-        registered += extractRecipesFromClass(detected, "TConstruct");
+        registered += ModRecipeBridge.extractRecipesFromClass(detected, "TConstruct");
 
-        String[] recipeClasses = { "tconstruct.library.TConstructRegistry", "tconstruct.library.crafting.CastingRecipe",
-            "tconstruct.library.crafting.AlloyMix", "tconstruct.library.crafting.DryingRackRecipes",
-            "tconstruct.library.crafting.LiquidCasting", "tconstruct.smeltery.TinkersSmeltery" };
-        for (String c : recipeClasses) registered += tryExtractFromClass(c, "TConstruct");
+        final String[] recipeClasses = { "tconstruct.library.TConstructRegistry",
+            "tconstruct.library.crafting.CastingRecipe", "tconstruct.library.crafting.AlloyMix",
+            "tconstruct.library.crafting.DryingRackRecipes", "tconstruct.library.crafting.LiquidCasting",
+            "tconstruct.smeltery.TinkersSmeltery" };
+        for (final String c : recipeClasses) registered += ModRecipeBridge.tryExtractFromClass(c, "TConstruct");
 
-        logModSummary("Tinkers' Construct", registered);
+        ModRecipeBridge.logModSummary("Tinkers' Construct", registered);
         return registered;
     }
 
@@ -1167,29 +1194,30 @@ public final class ModRecipeBridge {
     /**
      * Scans EnderIO's recipe systems: Alloy Smelter (合金冶炼炉),
      * SAG Mill (SAG磨粉机), Enchanter (附魔器).
-     *
+     * <p>
      * EnderIO uses manager classes in crazypants.enderio.machine.* packages.
-     *
+     * <p>
      * 扫描 EnderIO 的配方系统：合金冶炼炉、SAG磨粉机、附魔器。
      * EnderIO 在 crazypants.enderio.machine.* 包中使用管理器类。
      */
     private static int scanEnderIO() {
-        Class<?> detected = tryLoadClass("crazypants.enderio.EnderIO", "crazypants.enderio.api.EnderIOAPI");
-        if (detected == null) return 0;
+        final Class<?> detected = ModRecipeBridge
+            .tryLoadClass("crazypants.enderio.EnderIO", "crazypants.enderio.api.EnderIOAPI");
+        if (null == detected) return 0;
 
         int registered = 0;
         ModFileLogger.scan(tr("[Mod recipes]") + " ========== EnderIO ==========");
         ModFileLogger.info("[ThaumicAllAspect] " + tr("[Mod recipes]") + " EnderIO " + tr("detected, scanning"));
 
-        String[] recipeClasses = { "crazypants.enderio.machine.alloy.AlloyRecipeManager",
+        final String[] recipeClasses = { "crazypants.enderio.machine.alloy.AlloyRecipeManager",
             "crazypants.enderio.machine.alloy.BasicAlloyRecipe",
             "crazypants.enderio.machine.sagmill.SagMillRecipeManager",
             "crazypants.enderio.machine.enchanter.EnchanterRecipeManager",
             "crazypants.enderio.machine.crusher.CrusherRecipeManager",
             "crazypants.enderio.machine.recipe.RecipeConfig" };
-        for (String c : recipeClasses) registered += tryExtractFromClass(c, "EnderIO");
+        for (final String c : recipeClasses) registered += ModRecipeBridge.tryExtractFromClass(c, "EnderIO");
 
-        logModSummary("EnderIO", registered);
+        ModRecipeBridge.logModSummary("EnderIO", registered);
         return registered;
     }
 
@@ -1198,25 +1226,24 @@ public final class ModRecipeBridge {
     /**
      * Scans Railcraft's recipe systems: Rolling Machine (轧制机),
      * Blast Furnace (高炉), Rock Crusher (碎石机), Coke Oven (焦炉).
-     *
+     * <p>
      * Railcraft uses RailcraftCraftingManager and specific handler classes.
-     *
+     * <p>
      * 扫描 Railcraft 的配方系统：轧制机、高炉、碎石机、焦炉。
      * Railcraft 使用 RailcraftCraftingManager 和特定处理器类。
      */
     private static int scanRailcraft() {
-        Class<?> detected = tryLoadClass(
-            "mods.railcraft.api.crafting.RailcraftCraftingManager",
-            "mods.railcraft.common.Railcraft");
-        if (detected == null) return 0;
+        final Class<?> detected = ModRecipeBridge
+            .tryLoadClass("mods.railcraft.api.crafting.RailcraftCraftingManager", "mods.railcraft.common.Railcraft");
+        if (null == detected) return 0;
 
         int registered = 0;
         ModFileLogger.scan(tr("[Mod recipes]") + " ========== Railcraft ==========");
         ModFileLogger.info("[ThaumicAllAspect] " + tr("[Mod recipes]") + " Railcraft " + tr("detected, scanning"));
 
-        registered += extractRecipesFromClass(detected, "Railcraft");
+        registered += ModRecipeBridge.extractRecipesFromClass(detected, "Railcraft");
 
-        String[] recipeClasses = { "mods.railcraft.api.crafting.RailcraftCraftingManager",
+        final String[] recipeClasses = { "mods.railcraft.api.crafting.RailcraftCraftingManager",
             "mods.railcraft.api.crafting.IBlastFurnaceCraftingManager",
             "mods.railcraft.api.crafting.ICokeOvenCraftingManager",
             "mods.railcraft.api.crafting.IRockCrusherCraftingManager",
@@ -1224,9 +1251,9 @@ public final class ModRecipeBridge {
             "mods.railcraft.common.util.crafting.BlastFurnaceCraftingManager",
             "mods.railcraft.common.util.crafting.CokeOvenCraftingManager",
             "mods.railcraft.common.util.crafting.RockCrusherCraftingManager" };
-        for (String c : recipeClasses) registered += tryExtractFromClass(c, "Railcraft");
+        for (final String c : recipeClasses) registered += ModRecipeBridge.tryExtractFromClass(c, "Railcraft");
 
-        logModSummary("Railcraft", registered);
+        ModRecipeBridge.logModSummary("Railcraft", registered);
         return registered;
     }
 
@@ -1236,8 +1263,8 @@ public final class ModRecipeBridge {
      * Logs a per-mod summary line if any items were registered.
      * 如果有物品被注册，记录每个模组的总结行。
      */
-    private static void logModSummary(String modName, int registered) {
-        if (registered > 0) {
+    private static void logModSummary(final String modName, final int registered) {
+        if (0 < registered) {
             ModFileLogger.scan(
                 tr("[Mod recipes]") + " " + modName + ": " + tr("registered") + " " + registered + " " + tr("items"));
         } else {
@@ -1251,36 +1278,37 @@ public final class ModRecipeBridge {
      * Collects ritual objects from static fields of a class.
      * A List field is treated as a ritual list if its elements' class name contains
      * "ritual" or "necro" or "rite", or if the elements have ritual-typical methods.
-     *
+     * <p>
      * 从类的静态字段中收集仪式对象。
      * 如果 List 字段的元素类名包含 "ritual"/"necro"/"rite"，或者元素具有仪式典型方法，
      * 则将其视为仪式列表。
      */
-    private static void collectRitualObjectsFromClass(Class<?> clazz, List<Object> collector, String context) {
+    private static void collectRitualObjectsFromClass(final Class<?> clazz, final List<Object> collector,
+        final String context) {
         Class<?> c = clazz;
-        while (c != null && c != Object.class) {
-            for (Field f : c.getDeclaredFields()) {
+        while (null != c && Object.class != c) {
+            for (final Field f : c.getDeclaredFields()) {
                 if (!Modifier.isStatic(f.getModifiers())) continue;
                 try {
                     f.setAccessible(true);
-                    Object val = f.get(null);
+                    final Object val = f.get(null);
                     if (val instanceof List) {
-                        List<?> list = (List<?>) val;
+                        final List<?> list = (List<?>) val;
                         if (!list.isEmpty()) {
                             Object first = null;
-                            for (Object o : list) {
-                                if (o != null) {
+                            for (final Object o : list) {
+                                if (null != o) {
                                     first = o;
                                     break;
                                 }
                             }
-                            if (first != null) {
-                                String typeName = first.getClass()
+                            if (null != first) {
+                                final String typeName = first.getClass()
                                     .getName()
                                     .toLowerCase();
                                 if (typeName.contains("ritual") || typeName.contains("necro")
                                     || typeName.contains("rite")) {
-                                    logReflect(
+                                    ModRecipeBridge.logReflect(
                                         context,
                                         "found ritual list in field " + f.getName()
                                             + " (type="
@@ -1290,8 +1318,8 @@ public final class ModRecipeBridge {
                                             + list.size()
                                             + ")");
                                     collector.addAll(list);
-                                } else if (hasRitualMethods(first)) {
-                                    logReflect(
+                                } else if (ModRecipeBridge.hasRitualMethods(first)) {
+                                    ModRecipeBridge.logReflect(
                                         context,
                                         "found ritual-like list in field " + f.getName()
                                             + " (type="
@@ -1305,15 +1333,15 @@ public final class ModRecipeBridge {
                             }
                         }
                     } else if (val instanceof Map) {
-                        Map<?, ?> map = (Map<?, ?>) val;
-                        for (Object v : map.values()) {
-                            if (v != null) {
-                                String typeName = v.getClass()
+                        final Map<?, ?> map = (Map<?, ?>) val;
+                        for (final Object v : map.values()) {
+                            if (null != v) {
+                                final String typeName = v.getClass()
                                     .getName()
                                     .toLowerCase();
                                 if (typeName.contains("ritual") || typeName.contains("necro")
                                     || typeName.contains("rite")) {
-                                    logReflect(
+                                    ModRecipeBridge.logReflect(
                                         context,
                                         "found ritual map in field " + f.getName() + " (size=" + map.size() + ")");
                                     collector.addAll(map.values());
@@ -1322,8 +1350,8 @@ public final class ModRecipeBridge {
                             }
                         }
                     }
-                } catch (Exception e) {
-                    logReflectError(context, "field " + f.getName() + " in " + clazz.getName(), e);
+                } catch (final Exception e) {
+                    ModRecipeBridge.logReflectError(context, "field " + f.getName() + " in " + clazz.getName(), e);
                 }
             }
             c = c.getSuperclass();
@@ -1333,62 +1361,62 @@ public final class ModRecipeBridge {
     /**
      * Checks if an object has methods typical of a ritual recipe.
      * Returns true if at least 2 of: getOfferings, getSacrifice, getOutput, getRecipeOutput exist.
-     *
+     * <p>
      * 检查对象是否具有仪式配方的典型方法。
      * 如果 getOfferings, getSacrifice, getOutput, getRecipeOutput 中至少 2 个存在则返回 true。
      */
-    private static boolean hasRitualMethods(Object obj) {
+    private static boolean hasRitualMethods(final Object obj) {
         int found = 0;
-        for (String name : new String[] { "getOfferings", "getSacrifice", "getOutput", "getRecipeOutput" }) {
+        for (final String name : new String[] { "getOfferings", "getSacrifice", "getOutput", "getRecipeOutput" }) {
             try {
                 obj.getClass()
                     .getMethod(name);
                 found++;
-            } catch (NoSuchMethodException ignored) {}
+            } catch (final NoSuchMethodException ignored) {}
         }
-        return found >= 2;
+        return 2 <= found;
     }
 
     /**
      * Processes a single ritual object: extracts output + inputs (offerings + sacrifice).
-     *
+     * <p>
      * Uses reflection to try multiple method names for output, offerings, and sacrifice.
      * All attempts (success and failure) are logged to the scan log.
-     *
+     * <p>
      * 处理单个仪式对象：提取产物 + 输入材料（祭品 + 祭坛祭品）。
      * 使用反射尝试多个方法名。所有尝试（成功和失败）都记录到扫描日志。
      */
-    private static int processRitualObject(Object ritual, String modLabel) {
-        String ritualType = ritual.getClass()
+    private static int processRitualObject(final Object ritual, final String modLabel) {
+        final String ritualType = ritual.getClass()
             .getName();
         ItemStack output = null;
-        List<ItemStack> allInputs = new ArrayList<>();
+        final List<ItemStack> allInputs = new ArrayList<>();
 
         // --- Extract output ---
         // NecronomiconCreationRitual uses getItem(), not getOutput()
         // NecronomiconCreationRitual 使用 getItem() 而非 getOutput()
-        for (String mName : new String[] { "getItem", "getOutput", "getRecipeOutput", "getResult" }) {
+        for (final String mName : new String[] { "getItem", "getOutput", "getRecipeOutput", "getResult" }) {
             try {
-                Method m = ritual.getClass()
+                final Method m = ritual.getClass()
                     .getMethod(mName);
-                Object result = m.invoke(ritual);
+                final Object result = m.invoke(ritual);
                 if (result instanceof ItemStack) {
                     output = (ItemStack) result;
-                    logReflect(modLabel, ritualType + "." + mName + "() -> ItemStack OK");
+                    ModRecipeBridge.logReflect(modLabel, ritualType + "." + mName + "() -> ItemStack OK");
                     break;
                 }
-            } catch (NoSuchMethodException e) {
-                logReflect(modLabel, ritualType + "." + mName + "() not found");
-            } catch (Exception e) {
-                logReflectError(modLabel, ritualType + "." + mName + "()", e);
+            } catch (final NoSuchMethodException e) {
+                ModRecipeBridge.logReflect(modLabel, ritualType + "." + mName + "() not found");
+            } catch (final Exception e) {
+                ModRecipeBridge.logReflectError(modLabel, ritualType + "." + mName + "()", e);
             }
         }
 
-        if (output == null) {
-            output = findItemStackField(ritual, modLabel, "item", "output", "result");
+        if (null == output) {
+            output = ModRecipeBridge.findItemStackField(ritual, modLabel, "item", "output", "result");
         }
-        if (output == null || output.getItem() == null) {
-            logReflect(modLabel, ritualType + ": no output found, skipping");
+        if (null == output || null == output.getItem()) {
+            ModRecipeBridge.logReflect(modLabel, ritualType + ": no output found, skipping");
             return 0;
         }
         // Always extract inputs and derive: if item has no aspects we register; if it has aspects
@@ -1400,72 +1428,76 @@ public final class ModRecipeBridge {
         // ItemStack, String (OreDict name), or other Objects.
         // NecronomiconRitual.getOfferings() 返回 Object[] — 元素可能是
         // ItemStack、String（矿辞名）或其他对象。
-        for (String mName : new String[] { "getOfferings", "getInputs", "getIngredients", "getComponents" }) {
+        for (final String mName : new String[] { "getOfferings", "getInputs", "getIngredients", "getComponents" }) {
             try {
-                Method m = ritual.getClass()
+                final Method m = ritual.getClass()
                     .getMethod(mName);
-                Object result = m.invoke(ritual);
+                final Object result = m.invoke(ritual);
                 if (result instanceof Object[]) {
-                    for (Object o : (Object[]) result) {
-                        if (o == null) continue;
-                        ItemStack s = objectToItemStack(o);
-                        if (s != null && s.getItem() != null) allInputs.add(s);
+                    for (final Object o : (Object[]) result) {
+                        if (null == o) continue;
+                        final ItemStack s = ModRecipeBridge.objectToItemStack(o);
+                        if (null != s && null != s.getItem()) allInputs.add(s);
                     }
-                    logReflect(modLabel, ritualType + "." + mName + "() -> " + allInputs.size() + " offerings");
+                    ModRecipeBridge
+                        .logReflect(modLabel, ritualType + "." + mName + "() -> " + allInputs.size() + " offerings");
                     break;
                 } else if (result instanceof List) {
-                    for (Object o : (List<?>) result) {
-                        ItemStack s = objectToItemStack(o);
-                        if (s != null && s.getItem() != null) allInputs.add(s);
+                    for (final Object o : (List<?>) result) {
+                        final ItemStack s = ModRecipeBridge.objectToItemStack(o);
+                        if (null != s && null != s.getItem()) allInputs.add(s);
                     }
-                    logReflect(modLabel, ritualType + "." + mName + "() -> " + allInputs.size() + " offerings");
+                    ModRecipeBridge
+                        .logReflect(modLabel, ritualType + "." + mName + "() -> " + allInputs.size() + " offerings");
                     break;
                 }
-            } catch (NoSuchMethodException e) {
-                logReflect(modLabel, ritualType + "." + mName + "() not found");
-            } catch (Exception e) {
-                logReflectError(modLabel, ritualType + "." + mName + "()", e);
+            } catch (final NoSuchMethodException e) {
+                ModRecipeBridge.logReflect(modLabel, ritualType + "." + mName + "() not found");
+            } catch (final Exception e) {
+                ModRecipeBridge.logReflectError(modLabel, ritualType + "." + mName + "()", e);
             }
         }
 
         if (allInputs.isEmpty()) {
-            collectItemStackArrayField(ritual, allInputs, modLabel, "offerings", "inputs", "ingredients");
+            ModRecipeBridge
+                .collectItemStackArrayField(ritual, allInputs, modLabel, "offerings", "inputs", "ingredients");
         }
 
         // --- Extract sacrifice / central item ---
         // getSacrifice() returns Object (can be ItemStack, String/OreDict, or null)
         // getSacrifice() 返回 Object（可能是 ItemStack、String/矿辞名或 null）
-        for (String mName : new String[] { "getSacrifice", "getInput", "getCatalyst", "getCentralItem" }) {
+        for (final String mName : new String[] { "getSacrifice", "getInput", "getCatalyst", "getCentralItem" }) {
             try {
-                Method m = ritual.getClass()
+                final Method m = ritual.getClass()
                     .getMethod(mName);
-                Object result = m.invoke(ritual);
-                if (result != null) {
-                    ItemStack sacrifice = objectToItemStack(result);
-                    if (sacrifice != null && sacrifice.getItem() != null) {
+                final Object result = m.invoke(ritual);
+                if (null != result) {
+                    final ItemStack sacrifice = ModRecipeBridge.objectToItemStack(result);
+                    if (null != sacrifice && null != sacrifice.getItem()) {
                         allInputs.add(sacrifice);
-                        logReflect(modLabel, ritualType + "." + mName + "() -> sacrifice OK");
+                        ModRecipeBridge.logReflect(modLabel, ritualType + "." + mName + "() -> sacrifice OK");
                     }
                     break;
                 }
-            } catch (NoSuchMethodException e) {
-                logReflect(modLabel, ritualType + "." + mName + "() not found");
-            } catch (Exception e) {
-                logReflectError(modLabel, ritualType + "." + mName + "()", e);
+            } catch (final NoSuchMethodException e) {
+                ModRecipeBridge.logReflect(modLabel, ritualType + "." + mName + "() not found");
+            } catch (final Exception e) {
+                ModRecipeBridge.logReflectError(modLabel, ritualType + "." + mName + "()", e);
             }
         }
 
         if (allInputs.isEmpty()) {
-            ItemStack sacrifice = findItemStackField(ritual, modLabel, "sacrifice", "input", "catalyst", "centralItem");
-            if (sacrifice != null && sacrifice.getItem() != null) allInputs.add(sacrifice);
+            final ItemStack sacrifice = ModRecipeBridge
+                .findItemStackField(ritual, modLabel, "sacrifice", "input", "catalyst", "centralItem");
+            if (null != sacrifice && null != sacrifice.getItem()) allInputs.add(sacrifice);
         }
 
         if (allInputs.isEmpty()) {
-            logReflect(modLabel, ritualType + ": no inputs found, skipping");
+            ModRecipeBridge.logReflect(modLabel, ritualType + ": no inputs found, skipping");
             return 0;
         }
 
-        return tryDeriveFromInputs(output, allInputs, modLabel);
+        return ModRecipeBridge.tryDeriveFromInputs(output, allInputs, modLabel);
     }
 
     // ==================== Field Reflection Helpers / 字段反射辅助 ====================
@@ -1474,25 +1506,25 @@ public final class ModRecipeBridge {
      * Finds the first non-null ItemStack field from an object whose name matches one of the hints.
      * 从对象中查找名称匹配提示的第一个非空 ItemStack 字段。
      */
-    private static ItemStack findItemStackField(Object obj, String context, String... nameHints) {
+    private static ItemStack findItemStackField(final Object obj, final String context, final String... nameHints) {
         Class<?> c = obj.getClass();
-        while (c != null && c != Object.class) {
-            for (Field f : c.getDeclaredFields()) {
+        while (null != c && Object.class != c) {
+            for (final Field f : c.getDeclaredFields()) {
                 try {
-                    String fn = f.getName()
+                    final String fn = f.getName()
                         .toLowerCase();
-                    for (String hint : nameHints) {
+                    for (final String hint : nameHints) {
                         if (fn.contains(hint.toLowerCase())) {
                             f.setAccessible(true);
-                            Object val = f.get(obj);
+                            final Object val = f.get(obj);
                             if (val instanceof ItemStack) {
-                                logReflect(context, "found ItemStack field: " + f.getName());
+                                ModRecipeBridge.logReflect(context, "found ItemStack field: " + f.getName());
                                 return (ItemStack) val;
                             }
                         }
                     }
-                } catch (Exception e) {
-                    logReflectError(context, "field " + f.getName(), e);
+                } catch (final Exception e) {
+                    ModRecipeBridge.logReflectError(context, "field " + f.getName(), e);
                 }
             }
             c = c.getSuperclass();
@@ -1504,40 +1536,40 @@ public final class ModRecipeBridge {
      * Collects ItemStack items from array or List fields whose names match the hints.
      * 从名称匹配提示的数组或 List 字段中收集 ItemStack 物品。
      */
-    private static void collectItemStackArrayField(Object obj, List<ItemStack> collector, String context,
-        String... nameHints) {
+    private static void collectItemStackArrayField(final Object obj, final List<ItemStack> collector,
+        final String context, final String... nameHints) {
         Class<?> c = obj.getClass();
-        while (c != null && c != Object.class) {
-            for (Field f : c.getDeclaredFields()) {
+        while (null != c && Object.class != c) {
+            for (final Field f : c.getDeclaredFields()) {
                 try {
-                    String fn = f.getName()
+                    final String fn = f.getName()
                         .toLowerCase();
-                    for (String hint : nameHints) {
+                    for (final String hint : nameHints) {
                         if (fn.contains(hint.toLowerCase())) {
                             f.setAccessible(true);
-                            Object val = f.get(obj);
+                            final Object val = f.get(obj);
                             if (val instanceof ItemStack[]) {
-                                for (ItemStack s : (ItemStack[]) val) {
-                                    if (s != null && s.getItem() != null) collector.add(s);
+                                for (final ItemStack s : (ItemStack[]) val) {
+                                    if (null != s && null != s.getItem()) collector.add(s);
                                 }
-                                logReflect(
+                                ModRecipeBridge.logReflect(
                                     context,
                                     "found ItemStack[] field: " + f.getName() + " (" + collector.size() + " items)");
                                 return;
                             } else if (val instanceof List) {
-                                for (Object o : (List<?>) val) {
-                                    ItemStack s = toItemStack(o);
-                                    if (s != null && s.getItem() != null) collector.add(s);
+                                for (final Object o : (List<?>) val) {
+                                    final ItemStack s = ModRecipeBridge.toItemStack(o);
+                                    if (null != s && null != s.getItem()) collector.add(s);
                                 }
-                                logReflect(
+                                ModRecipeBridge.logReflect(
                                     context,
                                     "found List field: " + f.getName() + " (" + collector.size() + " items)");
                                 return;
                             }
                         }
                     }
-                } catch (Exception e) {
-                    logReflectError(context, "field " + f.getName(), e);
+                } catch (final Exception e) {
+                    ModRecipeBridge.logReflectError(context, "field " + f.getName(), e);
                 }
             }
             c = c.getSuperclass();
@@ -1550,24 +1582,24 @@ public final class ModRecipeBridge {
      * Generic reflective recipe extraction from a class.
      * Tries getInstance()/getRecipes() methods, then scans static and instance fields.
      * All reflection attempts are logged to the scan log.
-     *
+     * <p>
      * 从一个类中通用地反射提取配方。
      * 先尝试 getInstance()/getRecipes() 方法，再扫描静态和实例字段。
      * 所有反射尝试都记录到扫描日志。
      */
-    private static int extractRecipesFromClass(Class<?> clazz, String modLabel) {
+    private static int extractRecipesFromClass(final Class<?> clazz, final String modLabel) {
         int registered = 0;
         Object instance = null;
 
         // Phase 1: Try to obtain a singleton instance via getInstance()/instance()
         // 阶段 1：尝试通过 getInstance()/instance() 获取单例实例
-        for (String mName : new String[] { "getInstance", "instance" }) {
+        for (final String mName : new String[] { "getInstance", "instance" }) {
             try {
-                Method m = clazz.getMethod(mName);
+                final Method m = clazz.getMethod(mName);
                 if (Modifier.isStatic(m.getModifiers())) {
-                    Object result = m.invoke(null);
-                    if (result != null) {
-                        logReflect(
+                    final Object result = m.invoke(null);
+                    if (null != result) {
+                        ModRecipeBridge.logReflect(
                             modLabel,
                             clazz.getSimpleName() + "."
                                 + mName
@@ -1578,44 +1610,48 @@ public final class ModRecipeBridge {
                         break;
                     }
                 }
-            } catch (NoSuchMethodException ignored) {} catch (Exception e) {
-                logReflectError(modLabel, clazz.getSimpleName() + "." + mName + "()", e);
+            } catch (final NoSuchMethodException ignored) {} catch (final Exception e) {
+                ModRecipeBridge.logReflectError(modLabel, clazz.getSimpleName() + "." + mName + "()", e);
             }
         }
 
         // Phase 2: Try recipe-returning methods (static or on the instance)
         // 阶段 2：尝试返回配方的方法（静态方法或实例方法）
-        for (String mName : new String[] { "getRecipes", "getRecipeList", "getTransmutations", "getCrystallizations",
-            "getSmeltingList", "getCraftings", "getAllRecipes" }) {
+        for (final String mName : new String[] { "getRecipes", "getRecipeList", "getTransmutations",
+            "getCrystallizations", "getSmeltingList", "getCraftings", "getAllRecipes" }) {
             try {
-                Method m = clazz.getMethod(mName);
-                boolean isStatic = Modifier.isStatic(m.getModifiers());
-                Object target = isStatic ? null : instance;
-                if (!isStatic && target == null) continue;
-                Object result = m.invoke(target);
+                final Method m = clazz.getMethod(mName);
+                final boolean isStatic = Modifier.isStatic(m.getModifiers());
+                final Object target = isStatic ? null : instance;
+                if (!isStatic && null == target) continue;
+                final Object result = m.invoke(target);
                 if (result instanceof Map) {
-                    Map<?, ?> map = (Map<?, ?>) result;
-                    logReflect(modLabel, clazz.getSimpleName() + "." + mName + "() -> Map (size=" + map.size() + ")");
-                    registered += processRecipeMap(map, modLabel);
+                    final Map<?, ?> map = (Map<?, ?>) result;
+                    ModRecipeBridge.logReflect(
+                        modLabel,
+                        clazz.getSimpleName() + "." + mName + "() -> Map (size=" + map.size() + ")");
+                    registered += ModRecipeBridge.processRecipeMap(map, modLabel);
                 } else if (result instanceof List) {
-                    List<?> list = (List<?>) result;
-                    logReflect(modLabel, clazz.getSimpleName() + "." + mName + "() -> List (size=" + list.size() + ")");
-                    registered += processRecipeList(list, modLabel);
+                    final List<?> list = (List<?>) result;
+                    ModRecipeBridge.logReflect(
+                        modLabel,
+                        clazz.getSimpleName() + "." + mName + "() -> List (size=" + list.size() + ")");
+                    registered += ModRecipeBridge.processRecipeList(list, modLabel);
                 }
-            } catch (NoSuchMethodException ignored) {} catch (Exception e) {
-                logReflectError(modLabel, clazz.getSimpleName() + "." + mName + "()", e);
+            } catch (final NoSuchMethodException ignored) {} catch (final Exception e) {
+                ModRecipeBridge.logReflectError(modLabel, clazz.getSimpleName() + "." + mName + "()", e);
             }
         }
 
         // Phase 3: Scan instance fields (if we have an instance)
         // 阶段 3：扫描实例字段（如果有实例的话）
-        if (instance != null) {
-            registered += scanFieldsForRecipes(instance, instance.getClass(), modLabel);
+        if (null != instance) {
+            registered += ModRecipeBridge.scanFieldsForRecipes(instance, instance.getClass(), modLabel);
         }
 
         // Phase 4: Scan static fields only
         // 阶段 4：仅扫描静态字段
-        registered += scanStaticFields(clazz, modLabel);
+        registered += ModRecipeBridge.scanStaticFields(clazz, modLabel);
 
         return registered;
     }
@@ -1623,42 +1659,42 @@ public final class ModRecipeBridge {
     /**
      * Scans instance fields of a class for Map/List recipe registries.
      * Only reads non-static fields using the given instance.
-     *
+     * <p>
      * 扫描类的实例字段，查找 Map/List 配方注册表。
      * 仅使用给定实例读取非静态字段。
      */
-    private static int scanFieldsForRecipes(Object instance, Class<?> clazz, String modLabel) {
-        if (instance == null) return 0;
+    private static int scanFieldsForRecipes(final Object instance, final Class<?> clazz, final String modLabel) {
+        if (null == instance) return 0;
         int registered = 0;
         Class<?> c = clazz;
-        while (c != null && c != Object.class) {
-            for (Field f : c.getDeclaredFields()) {
+        while (null != c && Object.class != c) {
+            for (final Field f : c.getDeclaredFields()) {
                 if (Modifier.isStatic(f.getModifiers())) continue;
                 try {
                     f.setAccessible(true);
-                    Object val = f.get(instance);
+                    final Object val = f.get(instance);
                     if (val instanceof Map) {
-                        Map<?, ?> map = (Map<?, ?>) val;
+                        final Map<?, ?> map = (Map<?, ?>) val;
                         if (!map.isEmpty()) {
-                            logReflect(
+                            ModRecipeBridge.logReflect(
                                 modLabel,
                                 "field " + c.getSimpleName() + "." + f.getName() + " -> Map (size=" + map.size() + ")");
-                            registered += processRecipeMap(map, modLabel);
+                            registered += ModRecipeBridge.processRecipeMap(map, modLabel);
                         }
                     } else if (val instanceof List) {
-                        List<?> list = (List<?>) val;
+                        final List<?> list = (List<?>) val;
                         if (!list.isEmpty()) {
-                            logReflect(
+                            ModRecipeBridge.logReflect(
                                 modLabel,
                                 "field " + c
                                     .getSimpleName() + "." + f.getName() + " -> List (size=" + list.size() + ")");
-                            registered += processRecipeList(list, modLabel);
+                            registered += ModRecipeBridge.processRecipeList(list, modLabel);
                         }
                     }
-                } catch (Exception e) {
-                    logReflectError(
+                } catch (final Exception e) {
+                    ModRecipeBridge.logReflectError(
                         modLabel,
-                        "field " + c.getSimpleName() + "." + f.getName() + " (instance=" + (instance != null) + ")",
+                        "field " + c.getSimpleName() + "." + f.getName() + " (instance=" + (null != instance) + ")",
                         e);
                 }
             }
@@ -1670,44 +1706,45 @@ public final class ModRecipeBridge {
     /**
      * Scans only static fields of a class for Map/List recipe registries.
      * Safe to call without an instance — f.get(null) is valid for static fields.
-     *
+     * <p>
      * 仅扫描类的静态字段，查找 Map/List 配方注册表。
      * 无需实例即可安全调用 — 对静态字段 f.get(null) 是合法的。
      */
-    private static int scanStaticFields(Class<?> clazz, String modLabel) {
+    private static int scanStaticFields(final Class<?> clazz, final String modLabel) {
         int registered = 0;
         Class<?> c = clazz;
-        while (c != null && c != Object.class) {
-            for (Field f : c.getDeclaredFields()) {
+        while (null != c && Object.class != c) {
+            for (final Field f : c.getDeclaredFields()) {
                 if (!Modifier.isStatic(f.getModifiers())) continue;
                 try {
                     f.setAccessible(true);
-                    Object val = f.get(null);
-                    if (val == null) continue;
+                    final Object val = f.get(null);
+                    if (null == val) continue;
                     if (val instanceof Map) {
-                        Map<?, ?> map = (Map<?, ?>) val;
+                        final Map<?, ?> map = (Map<?, ?>) val;
                         if (!map.isEmpty()) {
-                            logReflect(
+                            ModRecipeBridge.logReflect(
                                 modLabel,
                                 "static field " + c
                                     .getSimpleName() + "." + f.getName() + " -> Map (size=" + map.size() + ")");
-                            registered += processRecipeMap(map, modLabel);
+                            registered += ModRecipeBridge.processRecipeMap(map, modLabel);
                         }
                     } else if (val instanceof List) {
-                        List<?> list = (List<?>) val;
+                        final List<?> list = (List<?>) val;
                         if (!list.isEmpty()) {
-                            logReflect(
+                            ModRecipeBridge.logReflect(
                                 modLabel,
                                 "static field " + c
                                     .getSimpleName() + "." + f.getName() + " -> List (size=" + list.size() + ")");
-                            registered += processRecipeList(list, modLabel);
+                            registered += ModRecipeBridge.processRecipeList(list, modLabel);
                         }
-                    } else if (isManagerCandidate(val)) {
-                        String path = c.getSimpleName() + "." + f.getName();
-                        registered += tryExtractFromManager(val, modLabel, path);
+                    } else if (ModRecipeBridge.isManagerCandidate(val)) {
+                        final String path = c.getSimpleName() + "." + f.getName();
+                        registered += ModRecipeBridge.tryExtractFromManager(val, modLabel, path);
                     }
-                } catch (Exception e) {
-                    logReflectError(modLabel, "static field " + c.getSimpleName() + "." + f.getName(), e);
+                } catch (final Exception e) {
+                    ModRecipeBridge
+                        .logReflectError(modLabel, "static field " + c.getSimpleName() + "." + f.getName(), e);
                 }
             }
             c = c.getSuperclass();
@@ -1718,11 +1755,11 @@ public final class ModRecipeBridge {
     /**
      * Checks whether an object looks like a recipe manager worth probing.
      * Excludes primitives, wrappers, strings, classes, and other non-manager types.
-     *
+     * <p>
      * 判断对象是否像一个值得探测的配方管理器。
      * 排除基本类型、包装类型、字符串、Class 等非管理器类型。
      */
-    private static boolean isManagerCandidate(Object val) {
+    private static boolean isManagerCandidate(final Object val) {
         return !(val instanceof Number) && !(val instanceof Boolean)
             && !(val instanceof String)
             && !(val instanceof Character)
@@ -1733,33 +1770,36 @@ public final class ModRecipeBridge {
      * Tries to call recipe-returning methods (getRecipes, getRecipeList, etc.)
      * on a manager-like object obtained from a static field.
      * Handles Forestry's pattern: RecipeManagers.carpenterManager.getRecipes()
-     *
+     * <p>
      * 尝试在从静态字段获取的管理器对象上调用返回配方的方法。
      * 处理林业的模式：RecipeManagers.carpenterManager.getRecipes()
      */
-    private static int tryExtractFromManager(Object manager, String modLabel, String fieldPath) {
+    private static int tryExtractFromManager(final Object manager, final String modLabel, final String fieldPath) {
         int registered = 0;
-        for (String mName : new String[] { "getRecipes", "getRecipeList", "getAllRecipes", "recipes", "getSmeltingList",
-            "getCraftings" }) {
+        for (final String mName : new String[] { "getRecipes", "getRecipeList", "getAllRecipes", "recipes",
+            "getSmeltingList", "getCraftings" }) {
             try {
-                Method m = manager.getClass()
+                final Method m = manager.getClass()
                     .getMethod(mName);
-                Object result = m.invoke(manager);
+                final Object result = m.invoke(manager);
                 if (result instanceof Map) {
-                    Map<?, ?> map = (Map<?, ?>) result;
-                    logReflect(modLabel, fieldPath + "." + mName + "() -> Map (size=" + map.size() + ")");
-                    registered += processRecipeMap(map, modLabel);
+                    final Map<?, ?> map = (Map<?, ?>) result;
+                    ModRecipeBridge
+                        .logReflect(modLabel, fieldPath + "." + mName + "() -> Map (size=" + map.size() + ")");
+                    registered += ModRecipeBridge.processRecipeMap(map, modLabel);
                 } else if (result instanceof List) {
-                    List<?> list = (List<?>) result;
-                    logReflect(modLabel, fieldPath + "." + mName + "() -> List (size=" + list.size() + ")");
-                    registered += processRecipeList(list, modLabel);
+                    final List<?> list = (List<?>) result;
+                    ModRecipeBridge
+                        .logReflect(modLabel, fieldPath + "." + mName + "() -> List (size=" + list.size() + ")");
+                    registered += ModRecipeBridge.processRecipeList(list, modLabel);
                 } else if (result instanceof Collection) {
-                    List<?> list = new ArrayList<>((Collection<?>) result);
-                    logReflect(modLabel, fieldPath + "." + mName + "() -> Collection (size=" + list.size() + ")");
-                    registered += processRecipeList(list, modLabel);
+                    final List<?> list = new ArrayList<>((Collection<?>) result);
+                    ModRecipeBridge
+                        .logReflect(modLabel, fieldPath + "." + mName + "() -> Collection (size=" + list.size() + ")");
+                    registered += ModRecipeBridge.processRecipeList(list, modLabel);
                 }
-            } catch (NoSuchMethodException ignored) {} catch (Exception e) {
-                logReflectError(modLabel, fieldPath + "." + mName + "()", e);
+            } catch (final NoSuchMethodException ignored) {} catch (final Exception e) {
+                ModRecipeBridge.logReflectError(modLabel, fieldPath + "." + mName + "()", e);
             }
         }
         return registered;
@@ -1771,22 +1811,22 @@ public final class ModRecipeBridge {
      * Processes a Map that may contain input→output recipe pairs.
      * 处理可能包含输入→输出配方对的 Map。
      */
-    private static int processRecipeMap(Map<?, ?> map, String modLabel) {
+    private static int processRecipeMap(final Map<?, ?> map, final String modLabel) {
         int registered = 0;
-        for (Map.Entry<?, ?> entry : map.entrySet()) {
+        for (final Map.Entry<?, ?> entry : map.entrySet()) {
             try {
-                ItemStack input = toItemStack(entry.getKey());
-                Object val = entry.getValue();
+                final ItemStack input = ModRecipeBridge.toItemStack(entry.getKey());
+                final Object val = entry.getValue();
 
                 if (val instanceof ItemStack) {
-                    registered += tryDeriveFromInput((ItemStack) val, input, modLabel);
+                    registered += ModRecipeBridge.tryDeriveFromInput((ItemStack) val, input, modLabel);
                 } else if (val instanceof ItemStack[]) {
-                    for (ItemStack out : (ItemStack[]) val) {
-                        registered += tryDeriveFromInput(out, input, modLabel);
+                    for (final ItemStack out : (ItemStack[]) val) {
+                        registered += ModRecipeBridge.tryDeriveFromInput(out, input, modLabel);
                     }
                 }
-            } catch (Exception e) {
-                logReflectError(modLabel, "processRecipeMap entry", e);
+            } catch (final Exception e) {
+                ModRecipeBridge.logReflectError(modLabel, "processRecipeMap entry", e);
             }
         }
         return registered;
@@ -1796,22 +1836,22 @@ public final class ModRecipeBridge {
      * Processes a List that may contain recipe objects with input/output fields.
      * Uses reflection to extract input and output ItemStacks from each element.
      * Each method probe attempt is logged.
-     *
+     * <p>
      * 处理可能包含配方对象的 List。
      * 使用反射从每个元素中提取输入和输出 ItemStack。
      * 每个方法探测尝试都会记录日志。
      */
-    private static int processRecipeList(List<?> list, String modLabel) {
+    private static int processRecipeList(final List<?> list, final String modLabel) {
         int registered = 0;
         boolean loggedType = false;
 
-        for (Object recipe : list) {
-            if (recipe == null) continue;
+        for (final Object recipe : list) {
+            if (null == recipe) continue;
 
             // Log the type of the first non-null element for debugging
             // 记录第一个非空元素的类型以便调试
             if (!loggedType) {
-                logReflect(
+                ModRecipeBridge.logReflect(
                     modLabel,
                     "processRecipeList: element type = " + recipe.getClass()
                         .getName());
@@ -1821,21 +1861,21 @@ public final class ModRecipeBridge {
             try {
                 ItemStack output = null;
                 ItemStack input = null;
-                List<ItemStack> inputs = new ArrayList<>();
+                final List<ItemStack> inputs = new ArrayList<>();
 
-                for (String mName : new String[] { "getOutput", "getRecipeOutput", "getResult" }) {
+                for (final String mName : new String[] { "getOutput", "getRecipeOutput", "getResult" }) {
                     try {
-                        Method m = recipe.getClass()
+                        final Method m = recipe.getClass()
                             .getMethod(mName);
-                        Object result = m.invoke(recipe);
+                        final Object result = m.invoke(recipe);
                         if (result instanceof ItemStack) {
                             output = (ItemStack) result;
                             break;
                         }
-                    } catch (NoSuchMethodException ignored) {
+                    } catch (final NoSuchMethodException ignored) {
                         // Expected probe — not logged per-element to avoid spam
-                    } catch (Exception e) {
-                        logReflectError(
+                    } catch (final Exception e) {
+                        ModRecipeBridge.logReflectError(
                             modLabel,
                             recipe.getClass()
                                 .getSimpleName() + "."
@@ -1845,31 +1885,31 @@ public final class ModRecipeBridge {
                     }
                 }
 
-                for (String mName : new String[] { "getInput", "getRecipeInput", "getCatalyst", "getIngredient",
+                for (final String mName : new String[] { "getInput", "getRecipeInput", "getCatalyst", "getIngredient",
                     "getInputs", "getIngredients" }) {
                     try {
-                        Method m = recipe.getClass()
+                        final Method m = recipe.getClass()
                             .getMethod(mName);
-                        Object result = m.invoke(recipe);
+                        final Object result = m.invoke(recipe);
                         if (result instanceof ItemStack) {
                             input = (ItemStack) result;
                             break;
                         } else if (result instanceof ItemStack[]) {
-                            for (ItemStack s : (ItemStack[]) result) {
-                                if (s != null) inputs.add(s);
+                            for (final ItemStack s : (ItemStack[]) result) {
+                                if (null != s) inputs.add(s);
                             }
                             break;
                         } else if (result instanceof List) {
-                            for (Object o : (List<?>) result) {
-                                ItemStack s = toItemStack(o);
-                                if (s != null) inputs.add(s);
+                            for (final Object o : (List<?>) result) {
+                                final ItemStack s = ModRecipeBridge.toItemStack(o);
+                                if (null != s) inputs.add(s);
                             }
                             break;
                         }
-                    } catch (NoSuchMethodException ignored) {
+                    } catch (final NoSuchMethodException ignored) {
                         // Expected probe
-                    } catch (Exception e) {
-                        logReflectError(
+                    } catch (final Exception e) {
+                        ModRecipeBridge.logReflectError(
                             modLabel,
                             recipe.getClass()
                                 .getSimpleName() + "."
@@ -1879,32 +1919,32 @@ public final class ModRecipeBridge {
                     }
                 }
 
-                if (output != null && output.getItem() != null) {
-                    if (input != null) {
-                        registered += tryDeriveFromInput(output, input, modLabel);
+                if (null != output && null != output.getItem()) {
+                    if (null != input) {
+                        registered += ModRecipeBridge.tryDeriveFromInput(output, input, modLabel);
                     } else if (!inputs.isEmpty()) {
-                        registered += tryDeriveFromInputs(output, inputs, modLabel);
+                        registered += ModRecipeBridge.tryDeriveFromInputs(output, inputs, modLabel);
                     } else {
                         // Output found but standard input probes failed.
                         // Try ritual-specific processing (handles getOfferings/getSacrifice).
                         // 找到产物但标准输入探测全部失败。
                         // 尝试仪式专用处理（处理 getOfferings/getSacrifice）。
-                        registered += processRitualObject(recipe, modLabel);
+                        registered += ModRecipeBridge.processRitualObject(recipe, modLabel);
                     }
                 } else {
                     // Standard output probes failed — try ritual processing as fallback
                     // 标准产物探测失败 — 尝试仪式处理作为回退
-                    String cn = recipe.getClass()
+                    final String cn = recipe.getClass()
                         .getName()
                         .toLowerCase();
                     if (cn.contains("ritual") || cn.contains("necro")
                         || cn.contains("rite")
-                        || hasRitualMethods(recipe)) {
-                        registered += processRitualObject(recipe, modLabel);
+                        || ModRecipeBridge.hasRitualMethods(recipe)) {
+                        registered += ModRecipeBridge.processRitualObject(recipe, modLabel);
                     }
                 }
-            } catch (Exception e) {
-                logReflectError(
+            } catch (final Exception e) {
+                ModRecipeBridge.logReflectError(
                     modLabel,
                     "processRecipeList element (" + recipe.getClass()
                         .getName() + ")",
@@ -1920,26 +1960,26 @@ public final class ModRecipeBridge {
      * If the output item has no aspects yet, derive from a single input with RECIPE_DECAY (90% decay, min 1).
      * 如果输出物品还没有要素，则从单个输入推导并施加 RECIPE_DECAY（90% 衰减，至少 1 点）。
      */
-    private static int tryDeriveFromInput(ItemStack output, ItemStack input, String modLabel) {
-        if (output == null || output.getItem() == null) return 0;
-        if (input == null || input.getItem() == null) return 0;
+    private static int tryDeriveFromInput(final ItemStack output, final ItemStack input, final String modLabel) {
+        if (null == output || null == output.getItem()) return 0;
+        if (null == input || null == input.getItem()) return 0;
         if (AspectUtils.hasAspect(output)) return 0;
 
-        AspectList inputAsp = AspectDeriver.getOrGenerateAspectsFor(input, 0, new HashSet<>());
-        if (inputAsp == null || inputAsp.size() == 0) return 0;
+        final AspectList inputAsp = AspectDeriver.getOrGenerateAspectsFor(input, 0, new HashSet<>());
+        if (null == inputAsp || 0 == inputAsp.size()) return 0;
 
-        AspectList result = AspectUtils.scaleAspects(inputAsp, AspectUtils.RECIPE_DECAY);
-        if (result == null || result.size() == 0) return 0;
+        final AspectList result = AspectUtils.scaleAspects(inputAsp, AspectUtils.RECIPE_DECAY);
+        if (null == result || 0 == result.size()) return 0;
 
         ThaumcraftApi.registerObjectTag(output, result.copy());
         AspectUtils.CACHE.put(AspectUtils.key(output), result.copy());
         AspectUtils.statNewlyRegistered++;
 
-        String id = AspectUtils.key(output);
+        final String id = AspectUtils.key(output);
         String displayName;
         try {
             displayName = output.getDisplayName();
-        } catch (Exception e) {
+        } catch (final Exception e) {
             displayName = "?";
         }
         ModFileLogger.scan(
@@ -1951,7 +1991,7 @@ public final class ModRecipeBridge {
                 + displayName
                 + ") <- "
                 + AspectUtils.aspectListToString(result));
-        AspectUtils.FAILED_IDS.remove(id.contains("@") ? id.substring(0, id.indexOf("@")) : id);
+        AspectUtils.FAILED_IDS.remove(id.contains("@") ? id.substring(0, id.indexOf('@')) : id);
         return 1;
     }
 
@@ -1960,47 +2000,48 @@ public final class ModRecipeBridge {
      * If the output has no aspects, register the derived list. If it has aspects, merge by
      * taking the maximum of each aspect (existing vs derived) so we never drop existing and
      * can improve weak ones.
-     *
+     * <p>
      * 从多个输入推导要素（50% 衰减），然后注册或与现有合并。
      * 若输出无要素则直接注册；若有则按每种要素取 max(现有, 推导) 合并，不覆盖且可增强弱要素。
      */
-    private static int tryDeriveFromInputs(ItemStack output, List<ItemStack> inputs, String modLabel) {
-        if (output == null || output.getItem() == null) return 0;
+    private static int tryDeriveFromInputs(final ItemStack output, final List<ItemStack> inputs,
+        final String modLabel) {
+        if (null == output || null == output.getItem()) return 0;
 
-        AspectList combined = new AspectList();
+        final AspectList combined = new AspectList();
         boolean hasAny = false;
-        for (ItemStack input : inputs) {
-            if (input == null || input.getItem() == null) continue;
-            AspectList asp = AspectDeriver.getOrGenerateAspectsFor(input, 0, new HashSet<>());
-            if (asp != null && asp.size() > 0) {
+        for (final ItemStack input : inputs) {
+            if (null == input || null == input.getItem()) continue;
+            final AspectList asp = AspectDeriver.getOrGenerateAspectsFor(input, 0, new HashSet<>());
+            if (null != asp && 0 < asp.size()) {
                 combined.add(asp);
                 hasAny = true;
             }
         }
         if (!hasAny) return 0;
 
-        AspectList derived = AspectUtils.scaleAspects(combined, AspectUtils.RECIPE_DECAY);
-        if (derived == null || derived.size() == 0) return 0;
+        final AspectList derived = AspectUtils.scaleAspects(combined, AspectUtils.RECIPE_DECAY);
+        if (null == derived || 0 == derived.size()) return 0;
 
         AspectList result = derived.copy();
         if (AspectUtils.hasAspect(output)) {
-            AspectList existing = ThaumcraftApiHelper.getObjectAspects(output);
-            if (existing != null && existing.size() > 0) {
+            final AspectList existing = ThaumcraftApiHelper.getObjectAspects(output);
+            if (null != existing && 0 < existing.size()) {
                 result = AspectUtils.mergeAspectsMax(existing, derived);
             }
         }
 
-        if (result == null || result.size() == 0) return 0;
+        if (null == result || 0 == result.size()) return 0;
 
         ThaumcraftApi.registerObjectTag(output, result.copy());
         AspectUtils.CACHE.put(AspectUtils.key(output), result.copy());
         AspectUtils.statNewlyRegistered++;
 
-        String id = AspectUtils.key(output);
+        final String id = AspectUtils.key(output);
         String displayName;
         try {
             displayName = output.getDisplayName();
-        } catch (Exception e) {
+        } catch (final Exception e) {
             displayName = "?";
         }
         ModFileLogger.scan(
@@ -2012,7 +2053,7 @@ public final class ModRecipeBridge {
                 + displayName
                 + ") <- "
                 + AspectUtils.aspectListToString(result));
-        AspectUtils.FAILED_IDS.remove(id.contains("@") ? id.substring(0, id.indexOf("@")) : id);
+        AspectUtils.FAILED_IDS.remove(id.contains("@") ? id.substring(0, id.indexOf('@')) : id);
         return 1;
     }
 
@@ -2020,7 +2061,7 @@ public final class ModRecipeBridge {
      * Safely converts an arbitrary object to an ItemStack if possible.
      * 安全地将任意对象转换为 ItemStack（如果可能的话）。
      */
-    private static ItemStack toItemStack(Object obj) {
+    private static ItemStack toItemStack(final Object obj) {
         if (obj instanceof ItemStack) return (ItemStack) obj;
         return null;
     }
@@ -2028,21 +2069,21 @@ public final class ModRecipeBridge {
     /**
      * Converts Object to ItemStack. Handles ItemStack directly, and String as OreDict name
      * (returns the first registered ore for the name). Other types are ignored.
-     *
+     * <p>
      * 将 Object 转为 ItemStack。直接处理 ItemStack；String 视为矿辞名
      * （返回该矿辞的第一个注册物品）。其他类型忽略。
      */
-    private static ItemStack objectToItemStack(Object obj) {
-        if (obj == null) return null;
+    private static ItemStack objectToItemStack(final Object obj) {
+        if (null == obj) return null;
         if (obj instanceof ItemStack) return (ItemStack) obj;
         if (obj instanceof String) {
-            String oreName = (String) obj;
+            final String oreName = (String) obj;
             try {
-                ArrayList<ItemStack> ores = OreDictionary.getOres(oreName);
-                if (ores != null && !ores.isEmpty()) {
+                final ArrayList<ItemStack> ores = OreDictionary.getOres(oreName);
+                if (null != ores && !ores.isEmpty()) {
                     return ores.get(0);
                 }
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 // OreDict lookup failed, ignore
             }
             return null;

@@ -1,9 +1,17 @@
-package com.sunmilktea.thaumicallaspect.aspect;
+package com.sunmilktea.thaumicallaspect.aspect.derive;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.init.Blocks;
-import net.minecraft.item.*;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemArmor;
+import net.minecraft.item.ItemBlock;
+import net.minecraft.item.ItemHoe;
+import net.minecraft.item.ItemShears;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.ItemTool;
+
+import com.sunmilktea.thaumicallaspect.config.FallbackConfig;
 
 import baubles.api.IBauble;
 import thaumcraft.api.aspects.Aspect;
@@ -34,9 +42,8 @@ import thaumcraft.api.aspects.AspectList;
  * 类别之间不互斥；一个物品可以匹配多个类别，要素会叠加。</li>
  * </ol>
  */
-public final class AspectFallback {
-
-    private AspectFallback() {}
+public enum AspectFallback {
+    ;
 
     /**
      * Derives aspects by inspecting the item's Java class hierarchy and, for blocks, the block's Material.
@@ -70,151 +77,152 @@ public final class AspectFallback {
      * 如果无法确定类型则返回 null，通知调用者尝试关键词兜底。
      * 所有要素查找都是 null 安全的：如果要素所属模组未加载，getAspect() 会返回 null。
      */
-    static AspectList deriveFromType(ItemStack stack) {
+    static AspectList deriveFromType(final ItemStack stack) {
         try {
-            Item item = stack.getItem();
-            AspectList al = new AspectList();
+            final Item item = stack.getItem();
+            final AspectList al = new AspectList();
 
-            if (item instanceof ItemBlock ib) {
-                Block b = ib.field_150939_a;
-                Material m = b.getMaterial();
+            if (item instanceof final ItemBlock ib) {
+                final Block b = ib.field_150939_a;
+                final Material m = b.getMaterial();
 
                 // Specific vanilla blocks: logs/planks → arbor
                 // 特定原版方块：原木/木板 → arbor
                 if (b == Blocks.log || b == Blocks.log2 || b == Blocks.planks) {
-                    Aspect arbor = AspectUtils.getAspect("arbor");
-                    if (arbor != null) al.add(arbor, 8);
+                    final Aspect arbor = AspectUtils.getAspect("arbor");
+                    if (null != arbor) al.add(arbor, 8);
                     return al;
                 }
 
                 // Quartz block: OreDict is tried first in AspectDeriver; this is fallback when OreDict has no donor.
                 // 石英块：推导链中会先走矿物辞典；此处为矿辞无 donor 时的类型兜底。
                 if (b == Blocks.quartz_block) {
-                    Aspect vit = AspectUtils.getAspect("vitreus");
-                    Aspect ter = AspectUtils.getAspect("terra");
-                    Aspect pot = AspectUtils.getAspect("potentia");
-                    if (vit != null) al.add(vit, 4);
-                    if (ter != null) al.add(ter, 2);
-                    if (pot != null) al.add(pot, 2);
+                    final Aspect vit = AspectUtils.getAspect("vitreus");
+                    final Aspect ter = AspectUtils.getAspect("terra");
+                    final Aspect pot = AspectUtils.getAspect("potentia");
+                    if (null != vit) al.add(vit, 4);
+                    if (null != ter) al.add(ter, 2);
+                    if (null != pot) al.add(pot, 2);
                     return al;
                 }
 
                 // Hard mineral materials: rock, ground, iron → terra + perditio
                 // 硬质矿物材料：岩石、地面、铁 → terra + perditio
                 if (m == Material.rock || m == Material.ground || m == Material.iron) {
-                    Aspect ter = AspectUtils.getAspect("terra");
-                    Aspect per = AspectUtils.getAspect("perditio");
-                    if (ter != null) al.add(ter, 4);
-                    if (per != null) al.add(per, 2);
+                    final Aspect ter = AspectUtils.getAspect("terra");
+                    final Aspect per = AspectUtils.getAspect("perditio");
+                    if (null != ter) al.add(ter, 4);
+                    if (null != per) al.add(per, 2);
                 }
                 if (m == Material.iron || m == Material.rock) {
-                    Aspect met = AspectUtils.getAspect("metallum");
-                    if (met != null) al.add(met, 4);
+                    final Aspect met = AspectUtils.getAspect("metallum");
+                    if (null != met) al.add(met, 4);
                 }
 
                 // Grass/dirt-like blocks: Material.grass (grass block, path block) → terra + herba
                 // 草地/泥土类方块：Material.grass（草方块、草径方块）→ terra + herba
                 if (m == Material.grass) {
-                    Aspect ter = AspectUtils.getAspect("terra");
-                    Aspect herb = AspectUtils.getAspect("herba");
-                    if (ter != null) al.add(ter, 4);
-                    if (herb != null) al.add(herb, 2);
+                    final Aspect ter = AspectUtils.getAspect("terra");
+                    final Aspect herb = AspectUtils.getAspect("herba");
+                    if (null != ter) al.add(ter, 4);
+                    if (null != herb) al.add(herb, 2);
                 }
 
                 // Sand blocks: Material.sand → terra + perditio (loose, crumbly earth)
                 // 沙子方块：Material.sand → terra + perditio（松散、易碎的大地）
                 if (m == Material.sand) {
-                    Aspect ter = AspectUtils.getAspect("terra");
-                    Aspect per = AspectUtils.getAspect("perditio");
-                    if (ter != null) al.add(ter, 4);
-                    if (per != null) al.add(per, 3);
+                    final Aspect ter = AspectUtils.getAspect("terra");
+                    final Aspect per = AspectUtils.getAspect("perditio");
+                    if (null != ter) al.add(ter, 4);
+                    if (null != per) al.add(per, 3);
                 }
 
                 // Clay blocks: Material.clay → terra + aqua (wet earth)
                 // 黏土方块：Material.clay → terra + aqua（湿土）
                 if (m == Material.clay) {
-                    Aspect ter = AspectUtils.getAspect("terra");
-                    Aspect aqu = AspectUtils.getAspect("aqua");
-                    if (ter != null) al.add(ter, 4);
-                    if (aqu != null) al.add(aqu, 2);
+                    final Aspect ter = AspectUtils.getAspect("terra");
+                    final Aspect aqu = AspectUtils.getAspect("aqua");
+                    if (null != ter) al.add(ter, 4);
+                    if (null != aqu) al.add(aqu, 2);
                 }
 
                 // Snow/ice blocks: Material.snow, Material.ice, Material.craftedSnow → gelum + aqua
                 // 雪/冰方块：Material.snow、Material.ice、Material.craftedSnow → gelum + aqua
                 if (m == Material.snow || m == Material.ice || m == Material.craftedSnow) {
-                    Aspect gel = AspectUtils.getAspect("gelum");
-                    Aspect aqu = AspectUtils.getAspect("aqua");
-                    if (gel != null) al.add(gel, 4);
-                    if (aqu != null) al.add(aqu, 2);
+                    final Aspect gel = AspectUtils.getAspect("gelum");
+                    final Aspect aqu = AspectUtils.getAspect("aqua");
+                    if (null != gel) al.add(gel, 4);
+                    if (null != aqu) al.add(aqu, 2);
                 }
 
                 // Wooden blocks: Material.wood → arbor
                 // 木质方块：Material.wood → arbor
                 if (m == Material.wood) {
-                    Aspect arbor = AspectUtils.getAspect("arbor");
-                    if (arbor != null) al.add(arbor, 4);
+                    final Aspect arbor = AspectUtils.getAspect("arbor");
+                    if (null != arbor) al.add(arbor, 4);
                 }
 
                 // Plants/vines: Material.plants, Material.vine → herba + victus
                 // 植物/藤蔓：Material.plants、Material.vine → herba + victus
                 if (m == Material.plants || m == Material.vine) {
-                    Aspect herb = AspectUtils.getAspect("herba");
-                    Aspect vic = AspectUtils.getAspect("victus");
-                    if (herb != null) al.add(herb, 4);
-                    if (vic != null) al.add(vic, 2);
+                    final Aspect herb = AspectUtils.getAspect("herba");
+                    final Aspect vic = AspectUtils.getAspect("victus");
+                    if (null != herb) al.add(herb, 4);
+                    if (null != vic) al.add(vic, 2);
                 }
 
                 // Cloth/sponge: Material.cloth → pannus; Material.sponge → aqua + vacuos
                 // 布料/海绵：Material.cloth → pannus；Material.sponge → aqua + vacuos
                 if (m == Material.cloth) {
-                    Aspect pan = AspectUtils.getAspect("pannus");
-                    if (pan != null) al.add(pan, 4);
+                    final Aspect pan = AspectUtils.getAspect("pannus");
+                    if (null != pan) al.add(pan, 4);
                 }
                 if (m == Material.sponge) {
-                    Aspect aqu = AspectUtils.getAspect("aqua");
-                    Aspect vac = AspectUtils.getAspect("vacuos");
-                    if (aqu != null) al.add(aqu, 4);
-                    if (vac != null) al.add(vac, 3);
+                    final Aspect aqu = AspectUtils.getAspect("aqua");
+                    final Aspect vac = AspectUtils.getAspect("vacuos");
+                    if (null != aqu) al.add(aqu, 4);
+                    if (null != vac) al.add(vac, 3);
                 }
 
-                if (al.size() > 0) return al;
+                if (0 < al.size()) return al;
             }
 
             if (item instanceof ItemArmor) {
-                Aspect tut = AspectUtils.getAspect("tutamen");
-                Aspect met = AspectUtils.getAspect("metallum");
-                if (tut != null) al.add(tut, 8);
-                if (met != null) al.add(met, 4);
+                final Aspect tut = AspectUtils.getAspect("tutamen");
+                final Aspect met = AspectUtils.getAspect("metallum");
+                if (null != tut) al.add(tut, 8);
+                if (null != met) al.add(met, 4);
                 return al;
             }
 
             boolean isTool = item instanceof ItemTool || item instanceof ItemHoe || item instanceof ItemShears;
             if (!isTool) {
                 try {
-                    isTool = item.getHarvestLevel(stack, "pickaxe") >= 0 || item.getHarvestLevel(stack, "axe") >= 0
-                        || item.getHarvestLevel(stack, "shovel") >= 0;
-                } catch (Exception ignored) {}
+                    isTool = 0 <= item.getHarvestLevel(stack, "pickaxe") || 0 <= item.getHarvestLevel(stack, "axe")
+                            || 0 <= item.getHarvestLevel(stack, "shovel");
+                } catch (final Exception ignored) {
+                }
             }
             if (isTool) {
-                Aspect inst = AspectUtils.getAspect("instrumentum");
-                Aspect met = AspectUtils.getAspect("metallum");
-                if (inst != null) al.add(inst, 5);
-                if (met != null) al.add(met, 3);
+                final Aspect inst = AspectUtils.getAspect("instrumentum");
+                final Aspect met = AspectUtils.getAspect("metallum");
+                if (null != inst) al.add(inst, 5);
+                if (null != met) al.add(met, 3);
                 return al;
             }
 
             if (AspectUtils.isFoodLike(item, stack)) {
-                Aspect fam = AspectUtils.getAspect("fames");
-                Aspect vic = AspectUtils.getAspect("victus");
-                Aspect aqu = AspectUtils.getAspect("aqua");
-                if (fam != null) al.add(fam, 4);
-                if (vic != null) al.add(vic, 3);
-                if (aqu != null) al.add(aqu, 1);
+                final Aspect fam = AspectUtils.getAspect("fames");
+                final Aspect vic = AspectUtils.getAspect("victus");
+                final Aspect aqu = AspectUtils.getAspect("aqua");
+                if (null != fam) al.add(fam, 4);
+                if (null != vic) al.add(vic, 3);
+                if (null != aqu) al.add(aqu, 1);
                 return al;
             }
 
             return null;
-        } catch (Exception e) {
+        } catch (final Exception e) {
             return null;
         }
     }
@@ -245,26 +253,26 @@ public final class AspectFallback {
      * 在输入的副本上操作，以保持原始 AspectList 的不可变性。
      * 仅当结果完全为空（没有任何要素）时返回 null。
      */
-    static AspectList applySpecialRules(ItemStack stack, AspectList base) {
-        AspectList al = base != null ? base.copy() : new AspectList();
-        Item item = stack.getItem();
+    static AspectList applySpecialRules(final ItemStack stack, final AspectList base) {
+        final AspectList al = null != base ? base.copy() : new AspectList();
+        final Item item = stack.getItem();
 
         if (AspectUtils.isFoodLike(item, stack)) {
-            Aspect fam = AspectUtils.getAspect("fames");
-            if (fam != null) {
-                int hunger = al.getAmount(fam);
-                if (hunger < 4) al.add(fam, 4 - hunger);
+            final Aspect fam = AspectUtils.getAspect("fames");
+            if (null != fam) {
+                final int hunger = al.getAmount(fam);
+                if (4 > hunger) al.add(fam, 4 - hunger);
             }
         }
 
         if (item instanceof IBauble) {
-            Aspect met = AspectUtils.getAspect("metallum");
-            Aspect tut = AspectUtils.getAspect("tutamen");
-            if (met != null && al.getAmount(met) == 0) al.add(met, 4);
-            if (tut != null && al.getAmount(tut) == 0) al.add(tut, 4);
+            final Aspect met = AspectUtils.getAspect("metallum");
+            final Aspect tut = AspectUtils.getAspect("tutamen");
+            if (null != met && 0 == al.getAmount(met)) al.add(met, 4);
+            if (null != tut && 0 == al.getAmount(tut)) al.add(tut, 4);
         }
 
-        return al.size() > 0 ? al : null;
+        return 0 < al.size() ? al : null;
     }
 
     /**
@@ -298,8 +306,8 @@ public final class AspectFallback {
      * LOTR Mod, TerraFirmaCraft, and other common GTNH modpack mods.
      * 关键词列表设计覆盖原版 MC、GregTech、神秘时代、植物魔法、匠魂、LOTR 模组、TFC 及其他常见 GTNH 整合包模组。
      */
-    static AspectList createGeneralFallback(ItemStack stack) {
-        AspectList fb = new AspectList();
+    static AspectList createGeneralFallback(final ItemStack stack) {
+        final AspectList fb = new AspectList();
 
         String unloc = "";
         try {
@@ -308,23 +316,19 @@ public final class AspectFallback {
                 .toLowerCase();
             if (unloc.startsWith("tile.")) unloc = unloc.substring(5);
             else if (unloc.startsWith("item.")) unloc = unloc.substring(5);
-        } catch (Exception ignored) {}
+        } catch (final Exception ignored) {}
 
         String reg = "";
         try {
             reg = Item.itemRegistry.getNameForObject(stack.getItem())
-                .toString()
                 .toLowerCase();
-        } catch (Exception ignored) {}
+        } catch (final Exception ignored) {}
 
-        String n = unloc + " " + reg;
+        final String n = unloc + " " + reg;
         boolean matched = false;
 
-        // ===== Stone / Rock blocks =====
-        // Natural stone and cobblestone variants. Covers vanilla + GT + TFC rock types + Chinese names.
-        // Assigned terra (earth) + perditio (entropy/erosion) since stone is raw, unprocessed earth.
-        // 天然石头和圆石变体。覆盖原版 + GT + TFC 岩石类型及中文名（岩石、石头、圆石等）。
-        if (nameContains(
+        // ===== Stone / Rock — EN / ZH / RU / JA / KO / DE / FR / ES =====
+        if (AspectFallback.nameContains(
             n,
             "stone",
             "cobble",
@@ -356,32 +360,124 @@ public final class AspectFallback {
             "板岩",
             "安山岩",
             "闪长岩",
-            "石英岩")) {
-            addFb(fb, "terra", 4);
-            addFb(fb, "perditio", 2);
+            "石英岩",
+            "камень",
+            "булыжник",
+            "мрамор",
+            "гранит",
+            "сланец",
+            "石",
+            "岩",
+            "大理石",
+            "花崗岩",
+            "砂岩",
+            "돌",
+            "바위",
+            "대리석",
+            "화강암",
+            "조약돌",
+            "Stein",
+            "Fels",
+            "Marmor",
+            "Granit",
+            "Pflasterstein",
+            "pierre",
+            "roche",
+            "marbre",
+            "granit",
+            "pavé",
+            "piedra",
+            "roca",
+            "mármol",
+            "granito",
+            "adoquín")) {
+            AspectFallback.addFb(fb, "terra", 4);
+            AspectFallback.addFb(fb, "perditio", 2);
             matched = true;
         }
 
-        // ===== Bricks (fired stone) =====
-        // Fired/processed stone blocks. Gets ignis (fire) since bricks are kilned.
-        // Also includes paving and decorative tiles which are similarly processed.
-        // 烧制/加工石材方块。获得 ignis（火）因为砖是窑烧的。
-        // 也包括铺路石和装饰瓷砖，它们也是类似加工的。
-        if (nameContains(n, "brick", "stonebrick", "stone_brick", "tiles", "paving")) {
-            addFb(fb, "terra", 4);
-            addFb(fb, "ignis", 2);
-            addFb(fb, "perditio", 2);
+        // ===== Bricks (fired stone) — EN / ZH / RU / JA / KO / DE / FR / ES =====
+        if (AspectFallback.nameContains(
+            n,
+            "brick",
+            "stonebrick",
+            "stone_brick",
+            "tiles",
+            "paving",
+            "砖",
+            "石砖",
+            "砖块",
+            "铺路",
+            "кирпич",
+            "плитка",
+            "レンガ",
+            "石レンガ",
+            "タイル",
+            "벽돌",
+            "타일",
+            "Ziegel",
+            "Fliese",
+            "Pflaster",
+            "brique",
+            "tuile",
+            "pavé",
+            "ladrillo",
+            "teja",
+            "adoquín")) {
+            AspectFallback.addFb(fb, "terra", 4);
+            AspectFallback.addFb(fb, "ignis", 2);
+            AspectFallback.addFb(fb, "perditio", 2);
             matched = true;
         }
 
-        // ===== Slabs / Stairs / Walls / Fences (building derivatives) =====
-        // Partial blocks derived from full blocks. Reduced terra (3 instead of 4) since they use less material.
-        // These are structural/architectural elements, not raw materials.
-        // 由完整方块衍生的部分方块。减少 terra（3 而非 4）因为用料更少。
-        // 这些是结构/建筑元素，而非原材料。
-        if (nameContains(n, "slab", "stair", "wall", "fence", "pillar", "column", "post", "railing")) {
-            addFb(fb, "terra", 3);
-            addFb(fb, "perditio", 1);
+        // ===== Slabs / Stairs / Walls / Fences — EN / ZH / RU / JA / KO / DE / FR / ES =====
+        if (AspectFallback.nameContains(
+            n,
+            "slab",
+            "stair",
+            "wall",
+            "fence",
+            "pillar",
+            "column",
+            "post",
+            "railing",
+            "台阶",
+            "楼梯",
+            "墙",
+            "栅栏",
+            "柱",
+            "плита",
+            "ступень",
+            "стена",
+            "забор",
+            "колонна",
+            "ハーフブロック",
+            "階段",
+            "壁",
+            "柵",
+            "柱",
+            "반블록",
+            "계단",
+            "벽",
+            "울타리",
+            "기둥",
+            "Platte",
+            "Treppe",
+            "Wand",
+            "Zaun",
+            "Säule",
+            "dalle",
+            "escalier",
+            "mur",
+            "clôture",
+            "pilier",
+            "losa",
+            "escalera",
+            "muro",
+            "valla",
+            "pilar")) {
+            AspectFallback.addFb(fb, "terra", 3);
+            AspectFallback.addFb(fb, "perditio", 1);
             matched = true;
         }
 
@@ -389,9 +485,10 @@ public final class AspectFallback {
         // Aesthetically processed stone. Gets ordo (order/craftsmanship) instead of perditio, reflecting
         // the human effort to shape and refine the raw material.
         // 经过美学加工的石材。获得 ordo（秩序/工艺）而非 perditio，反映人类塑造和精炼原材料的努力。
-        if (nameContains(n, "smooth", "polished", "chiseled", "carved", "mossy", "cracked", "cosmetic", "decorat")) {
-            addFb(fb, "terra", 3);
-            addFb(fb, "ordo", 2);
+        if (AspectFallback
+            .nameContains(n, "smooth", "polished", "chiseled", "carved", "mossy", "cracked", "cosmetic", "decorat")) {
+            AspectFallback.addFb(fb, "terra", 3);
+            AspectFallback.addFb(fb, "ordo", 2);
             matched = true;
         }
 
@@ -400,7 +497,7 @@ public final class AspectFallback {
         // Includes grass (dirt with vegetation on top), farmland (tilled dirt), and mycelium.
         // 松散的、未固结的大地材料。比石头有更高的 perditio 因为它们容易碎裂。
         // 包括草方块（带植被的泥土）、耕地（翻耕的泥土）和菌丝。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "sand",
             "gravel",
@@ -413,45 +510,104 @@ public final class AspectFallback {
             "farmland",
             "tilled",
             "coarse")) {
-            addFb(fb, "terra", 4);
-            addFb(fb, "perditio", 3);
+            AspectFallback.addFb(fb, "terra", 4);
+            AspectFallback.addFb(fb, "perditio", 3);
             matched = true;
         }
 
         // ===== Clay / Terracotta =====
         // Wet earth that can be fired. Gets aqua (water content) + ignis (can be fired into bricks/terracotta).
         // 可烧制的湿土。获得 aqua（水分）+ ignis（可烧制为砖块/陶土）。
-        if (nameContains(n, "clay", "terracotta", "ceramic", "stained_clay", "hardened_clay")) {
-            addFb(fb, "terra", 4);
-            addFb(fb, "aqua", 2);
-            addFb(fb, "ignis", 1);
+        if (AspectFallback.nameContains(n, "clay", "terracotta", "ceramic", "stained_clay", "hardened_clay")) {
+            AspectFallback.addFb(fb, "terra", 4);
+            AspectFallback.addFb(fb, "aqua", 2);
+            AspectFallback.addFb(fb, "ignis", 1);
             matched = true;
         }
 
         // ===== Glass =====
         // Transparent/vitreous blocks. vitreus (crystal/glass) is the primary aspect.
         // 透明/玻璃质方块。vitreus（水晶/玻璃）是主要要素。
-        if (nameContains(n, "glass", "pane", "stained_glass")) {
-            addFb(fb, "vitreus", 4);
-            addFb(fb, "perditio", 1);
+        if (AspectFallback.nameContains(n, "glass", "pane", "stained_glass")) {
+            AspectFallback.addFb(fb, "vitreus", 4);
+            AspectFallback.addFb(fb, "perditio", 1);
             matched = true;
         }
 
-        // ===== Wood / Planks =====
-        // Wooden blocks and containers. Also covers barrels/shelves since they're wood-based.
-        // 木质方块和容器。也覆盖桶/架子因为它们是木质的。
-        if (nameContains(n, "plank", "log", "wood", "timber", "lumber", "crate", "barrel", "shelf", "bookshelf")) {
-            addFb(fb, "arbor", 4);
+        // ===== Wood / Planks — EN / ZH / RU / JA / KO / DE / FR / ES =====
+        if (AspectFallback.nameContains(
+            n,
+            "plank",
+            "log",
+            "wood",
+            "timber",
+            "lumber",
+            "crate",
+            "barrel",
+            "shelf",
+            "bookshelf",
+            "木板",
+            "原木",
+            "木头",
+            "木材",
+            "桶",
+            "书架",
+            "доска",
+            "бревно",
+            "дерево",
+            "бочка",
+            "полка",
+            "木材",
+            "丸太",
+            "樽",
+            "本棚",
+            "판자",
+            "통나무",
+            "나무",
+            "통",
+            "선반",
+            "Brett",
+            "Holz",
+            "Fass",
+            "Regal",
+            "planche",
+            "bûche",
+            "bois",
+            "tonneau",
+            "étagère",
+            "tablón",
+            "tronco",
+            "madera",
+            "barril",
+            "estante")) {
+            AspectFallback.addFb(fb, "arbor", 4);
             matched = true;
         }
 
-        // ===== Sapling / Seedling / 树苗 =====
-        // Young trees and tree starters. arbor (wood/tree) + herba (growth). Covers vanilla saplings
-        // and modded variants (treeSapling, sprout, seedling, etc.) for mod compatibility.
-        // 树苗与幼苗。arbor（树木）+ herba（生长）。覆盖原版树苗及模组变体（treeSapling、sprout、seedling 等）以兼容模组。
-        if (nameContains(n, "sapling", "treesapling", "tree_sapling", "sprout", "seedling", "树苗")) {
-            addFb(fb, "arbor", 4);
-            addFb(fb, "herba", 2);
+        // ===== Sapling / Seedling — EN / ZH / RU / JA / KO / DE / FR / ES =====
+        if (AspectFallback.nameContains(
+            n,
+            "sapling",
+            "treesapling",
+            "tree_sapling",
+            "sprout",
+            "seedling",
+            "树苗",
+            "树苗",
+            "саженец",
+            "росток",
+            "苗木",
+            "芽",
+            "묘목",
+            "새싹",
+            "Setzling",
+            "Spross",
+            "pousse",
+            "plantule",
+            "brote",
+            "plántula")) {
+            AspectFallback.addFb(fb, "arbor", 4);
+            AspectFallback.addFb(fb, "herba", 2);
             matched = true;
         }
 
@@ -460,7 +616,7 @@ public final class AspectFallback {
         // crop items, and various mod-added flora (mushrooms, ferns, cacti, algae, etc.).
         // 有机植物物质。获得 herba（植物）+ victus（生命）。覆盖植物魔法神秘花朵、
         // 农作物及模组植物（蘑菇、蕨类、仙人掌、藻类等）。兼容模组命名（plant、vegetation、botanical 等）。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "leaf",
             "leaves",
@@ -513,17 +669,17 @@ public final class AspectFallback {
             "pollen",
             "spore",
             "植物")) {
-            addFb(fb, "herba", 4);
-            addFb(fb, "victus", 2);
+            AspectFallback.addFb(fb, "herba", 4);
+            AspectFallback.addFb(fb, "victus", 2);
             matched = true;
         }
 
         // ===== Ice / Snow =====
         // Frozen water blocks. Gets gelum (cold) + aqua (water origin).
         // 冻结的水方块。获得 gelum（寒冷）+ aqua（水的来源）。
-        if (nameContains(n, "ice", "snow", "frost", "frozen", "packed_ice")) {
-            addFb(fb, "gelum", 4);
-            addFb(fb, "aqua", 2);
+        if (AspectFallback.nameContains(n, "ice", "snow", "frost", "frozen", "packed_ice")) {
+            AspectFallback.addFb(fb, "gelum", 4);
+            AspectFallback.addFb(fb, "aqua", 2);
             matched = true;
         }
 
@@ -532,20 +688,20 @@ public final class AspectFallback {
         // Sub-checks: soul blocks also get spiritus (spirit); glowstone also gets lux (light).
         // 来自下界维度的方块。基础：ignis（火焰/热量）+ terra（固体）。
         // 子检查：灵魂方块额外获得 spiritus（灵魂）；荧石额外获得 lux（光）。
-        if (nameContains(n, "nether", "netherrack", "soulsand", "soul_sand", "magma", "glowstone")) {
-            addFb(fb, "ignis", 4);
-            addFb(fb, "terra", 2);
-            if (nameContains(n, "soul")) addFb(fb, "spiritus", 2);
-            if (nameContains(n, "glow")) addFb(fb, "lux", 3);
+        if (AspectFallback.nameContains(n, "nether", "netherrack", "soulsand", "soul_sand", "magma", "glowstone")) {
+            AspectFallback.addFb(fb, "ignis", 4);
+            AspectFallback.addFb(fb, "terra", 2);
+            if (AspectFallback.nameContains(n, "soul")) AspectFallback.addFb(fb, "spiritus", 2);
+            if (AspectFallback.nameContains(n, "glow")) AspectFallback.addFb(fb, "lux", 3);
             matched = true;
         }
 
         // ===== End blocks =====
         // Blocks from the End dimension. Gets alienis (alien/otherworldly) alongside terra.
         // 来自末地维度的方块。在 terra 基础上获得 alienis（异界/超凡）。
-        if (nameContains(n, "end_stone", "endstone", "purpur")) {
-            addFb(fb, "terra", 3);
-            addFb(fb, "alienis", 3);
+        if (AspectFallback.nameContains(n, "end_stone", "endstone", "purpur")) {
+            AspectFallback.addFb(fb, "terra", 3);
+            AspectFallback.addFb(fb, "alienis", 3);
             matched = true;
         }
 
@@ -553,7 +709,7 @@ public final class AspectFallback {
         // Fallback only: items that already have TC aspects are skipped before derivation (see AspectScanner).
         // 仅兜底：已有要素的拔刀剑等会在扫描阶段被跳过，不会进入推导，此处只对尚无要素的刀剑类生效。
         // Swords, katanas, and blade-like items that may not extend ItemSword. telum (weapon) + instrumentum (tool).
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "blade",
             "sword",
@@ -566,9 +722,9 @@ public final class AspectFallback {
             "nodachi",
             "tachi",
             "saya")) {
-            addFb(fb, "telum", 4);
-            addFb(fb, "instrumentum", 3);
-            addFb(fb, "metallum", 2);
+            AspectFallback.addFb(fb, "telum", 4);
+            AspectFallback.addFb(fb, "instrumentum", 3);
+            AspectFallback.addFb(fb, "metallum", 2);
             matched = true;
         }
 
@@ -577,48 +733,48 @@ public final class AspectFallback {
         // association with dark/nether portals, plus ignis from its volcanic origin.
         // 由岩浆+水形成的火山玻璃。获得 tenebrae（黑暗）因为其黑色和与暗黑/下界传送门的关联，
         // 加上 ignis 来自其火山起源。
-        if (nameContains(n, "obsidian")) {
-            addFb(fb, "terra", 4);
-            addFb(fb, "tenebrae", 4);
-            addFb(fb, "ignis", 2);
+        if (AspectFallback.nameContains(n, "obsidian")) {
+            AspectFallback.addFb(fb, "terra", 4);
+            AspectFallback.addFb(fb, "tenebrae", 4);
+            AspectFallback.addFb(fb, "ignis", 2);
             matched = true;
         }
 
         // ===== Bedrock =====
         // Indestructible foundation block. Gets high terra + tenebrae (darkness of the deep) + perditio.
         // 不可破坏的基础方块。获得高 terra + tenebrae（深处的黑暗）+ perditio。
-        if (nameContains(n, "bedrock")) {
-            addFb(fb, "terra", 6);
-            addFb(fb, "tenebrae", 3);
-            addFb(fb, "perditio", 2);
+        if (AspectFallback.nameContains(n, "bedrock")) {
+            AspectFallback.addFb(fb, "terra", 6);
+            AspectFallback.addFb(fb, "tenebrae", 3);
+            AspectFallback.addFb(fb, "perditio", 2);
             matched = true;
         }
 
         // ===== Sponge =====
         // Water-absorbing block. Gets aqua (water interaction) + vacuos (absorbs/empties).
         // 吸水方块。获得 aqua（水交互）+ vacuos（吸收/排空）。
-        if (nameContains(n, "sponge")) {
-            addFb(fb, "aqua", 4);
-            addFb(fb, "vacuos", 3);
+        if (AspectFallback.nameContains(n, "sponge")) {
+            AspectFallback.addFb(fb, "aqua", 4);
+            AspectFallback.addFb(fb, "vacuos", 3);
             matched = true;
         }
 
         // ===== TNT / Explosives =====
         // Explosive blocks and items. Gets ignis (fire/detonation) + perditio (destruction/entropy).
         // 爆炸方块和物品。获得 ignis（火焰/引爆）+ perditio（破坏/熵）。
-        if (nameContains(n, "tnt", "explosive", "dynamite", "bomb", "grenade", "nuke", "itnt")) {
-            addFb(fb, "ignis", 4);
-            addFb(fb, "perditio", 4);
-            addFb(fb, "potentia", 2);
+        if (AspectFallback.nameContains(n, "tnt", "explosive", "dynamite", "bomb", "grenade", "nuke", "itnt")) {
+            AspectFallback.addFb(fb, "ignis", 4);
+            AspectFallback.addFb(fb, "perditio", 4);
+            AspectFallback.addFb(fb, "potentia", 2);
             matched = true;
         }
 
         // ===== Lamps / Light sources =====
         // Any light-emitting block or item. Gets lux (light) + potentia (power/energy to produce light).
         // 任何发光的方块或物品。获得 lux（光）+ potentia（产生光的能量/动力）。
-        if (nameContains(n, "lamp", "lantern", "light", "candle", "torch", "chandel", "illumin")) {
-            addFb(fb, "lux", 4);
-            addFb(fb, "potentia", 2);
+        if (AspectFallback.nameContains(n, "lamp", "lantern", "light", "candle", "torch", "chandel", "illumin")) {
+            AspectFallback.addFb(fb, "lux", 4);
+            AspectFallback.addFb(fb, "potentia", 2);
             matched = true;
         }
 
@@ -627,7 +783,7 @@ public final class AspectFallback {
         // Keywords cover GT's extensive material processing chain (ingot → plate → bolt → screw → etc.).
         // 常见于 GT 的加工金属形态。获得高 metallum（6）因为这些是纯金属产品。
         // 关键词覆盖 GT 的广泛材料加工链（锭 → 板 → 螺栓 → 螺丝 → 等等）。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "ingot",
             "plate",
@@ -642,18 +798,18 @@ public final class AspectFallback {
             "foil",
             "casing",
             "frame")) {
-            addFb(fb, "metallum", 6);
-            addFb(fb, "terra", 2);
+            AspectFallback.addFb(fb, "metallum", 6);
+            AspectFallback.addFb(fb, "terra", 2);
             matched = true;
         }
 
         // ===== Molten metal fluids =====
         // Liquid metals from smeltery (Tinkers') or GT. Gets metallum + ignis (heat) + aqua (liquid state).
         // 冶炼厂（匠魂）或 GT 的液态金属。获得 metallum + ignis（热量）+ aqua（液态）。
-        if (nameContains(n, "molten", "liquid_metal")) {
-            addFb(fb, "metallum", 4);
-            addFb(fb, "ignis", 3);
-            addFb(fb, "aqua", 1);
+        if (AspectFallback.nameContains(n, "molten", "liquid_metal")) {
+            AspectFallback.addFb(fb, "metallum", 4);
+            AspectFallback.addFb(fb, "ignis", 3);
+            AspectFallback.addFb(fb, "aqua", 1);
             matched = true;
         }
 
@@ -662,7 +818,7 @@ public final class AspectFallback {
         // Gets machina (machine/industry) + aqua (liquid) + ignis (flammable/combustible).
         // 工业化学品和石油产品，主要来自 GT 的化学加工。
         // 获得 machina（机械/工业）+ aqua（液态）+ ignis（可燃/可燃烧）。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "oil",
             "fuel",
@@ -680,9 +836,9 @@ public final class AspectFallback {
             "lubricant",
             "coolant",
             "solvent")) {
-            addFb(fb, "machina", 3);
-            addFb(fb, "aqua", 2);
-            addFb(fb, "ignis", 2);
+            AspectFallback.addFb(fb, "machina", 3);
+            AspectFallback.addFb(fb, "aqua", 2);
+            AspectFallback.addFb(fb, "ignis", 2);
             matched = true;
         }
 
@@ -691,7 +847,7 @@ public final class AspectFallback {
         // plus aqua (liquid) + potentia (reactive energy).
         // 来自 GT 的腐蚀性、有毒或反应性化学品。因其危险性质获得 venenum（毒素），
         // 加上 aqua（液态）+ potentia（反应能量）。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "acid",
             "chlor",
@@ -704,9 +860,9 @@ public final class AspectFallback {
             "methane",
             "fluorine",
             "mercury")) {
-            addFb(fb, "venenum", 3);
-            addFb(fb, "aqua", 2);
-            addFb(fb, "potentia", 2);
+            AspectFallback.addFb(fb, "venenum", 3);
+            AspectFallback.addFb(fb, "aqua", 2);
+            AspectFallback.addFb(fb, "potentia", 2);
             matched = true;
         }
 
@@ -715,10 +871,11 @@ public final class AspectFallback {
         // Gets praecantatio (magic) as the dominant aspect + aqua + potentia.
         // 来自神秘时代、植物魔法和其他魔法模组的具有超自然属性的流体。
         // 获得 praecantatio（魔法）作为主要要素 + aqua + potentia。
-        if (nameContains(n, "essence", "mana", "flux", "taint", "death", "pure", "vis", "ender", "xpjuice")) {
-            addFb(fb, "praecantatio", 4);
-            addFb(fb, "aqua", 2);
-            addFb(fb, "potentia", 2);
+        if (AspectFallback
+            .nameContains(n, "essence", "mana", "flux", "taint", "death", "pure", "vis", "ender", "xpjuice")) {
+            AspectFallback.addFb(fb, "praecantatio", 4);
+            AspectFallback.addFb(fb, "aqua", 2);
+            AspectFallback.addFb(fb, "potentia", 2);
             matched = true;
         }
 
@@ -727,10 +884,11 @@ public final class AspectFallback {
         // Covers blood, milk, honey, tree sap, slime, and similar natural substances.
         // 有机/生物来源的流体。获得 aqua（液态）+ victus（生命）+ bestia（动物）。
         // 覆盖血液、牛奶、蜂蜜、树液、史莱姆和类似的天然物质。
-        if (nameContains(n, "blood", "milk", "honey", "sap", "juice", "slime", "latex", "resin", "syrup", "soup")) {
-            addFb(fb, "aqua", 3);
-            addFb(fb, "victus", 3);
-            addFb(fb, "bestia", 1);
+        if (AspectFallback
+            .nameContains(n, "blood", "milk", "honey", "sap", "juice", "slime", "latex", "resin", "syrup", "soup")) {
+            AspectFallback.addFb(fb, "aqua", 3);
+            AspectFallback.addFb(fb, "victus", 3);
+            AspectFallback.addFb(fb, "bestia", 1);
             matched = true;
         }
 
@@ -739,9 +897,9 @@ public final class AspectFallback {
         // that already received specific aspects above (e.g., molten metal already has metallum+ignis+aqua).
         // 仅在没有其他类别匹配时触发（!matched）。防止已在上面获得特定要素的特殊流体被过度标记
         // （例如，熔融金属已经有了 metallum+ignis+aqua）。
-        if (!matched && nameContains(n, "fluid", "liquid")) {
-            addFb(fb, "aqua", 4);
-            addFb(fb, "permutatio", 2);
+        if (!matched && AspectFallback.nameContains(n, "fluid", "liquid")) {
+            AspectFallback.addFb(fb, "aqua", 4);
+            AspectFallback.addFb(fb, "permutatio", 2);
             matched = true;
         }
 
@@ -749,7 +907,7 @@ public final class AspectFallback {
         // Precious stones and crystals used as items (not just ore form). vitreus (crystal) + potentia (energy)
         // + lucrum (value). Covers vanilla and modded gems (ruby, sapphire, amethyst, etc.) for mod compatibility.
         // 宝石与贵重晶体（物品形态）。vitreus（水晶）+ potentia（能量）+ lucrum（价值）。覆盖原版与模组宝石以兼容模组。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "gem",
             "gemstone",
@@ -767,9 +925,9 @@ public final class AspectFallback {
             "citrine",
             "aquamarine",
             "宝石")) {
-            addFb(fb, "vitreus", 4);
-            addFb(fb, "potentia", 2);
-            addFb(fb, "lucrum", 2);
+            AspectFallback.addFb(fb, "vitreus", 4);
+            AspectFallback.addFb(fb, "potentia", 2);
+            AspectFallback.addFb(fb, "lucrum", 2);
             matched = true;
         }
 
@@ -777,7 +935,7 @@ public final class AspectFallback {
         // OreDict is tried first in derivation; this is keyword fallback when OreDict has no donor.
         // 推导时优先用矿物辞典；此处为矿辞无 donor 时的关键词兜底。
         // 覆盖：下界石英矿石/下界石英、石英块/柱/楼梯/台阶/砖、平滑石英、錾制石英等（中英文名与注册名）。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "ore",
             "crystal",
@@ -800,64 +958,65 @@ public final class AspectFallback {
             "dust",
             "shard",
             "fragment")) {
-            addFb(fb, "vitreus", 4);
-            addFb(fb, "potentia", 2);
-            addFb(fb, "terra", 2);
+            AspectFallback.addFb(fb, "vitreus", 4);
+            AspectFallback.addFb(fb, "potentia", 2);
+            AspectFallback.addFb(fb, "terra", 2);
             matched = true;
         }
 
         // ===== Raw material / 原料·材料 =====
         // Generic raw materials and resources. terra (earth/solid) + permutatio (transformation/raw state).
         // 通用原料与资源。terra（大地/固体）+ permutatio（转化/原始状态）。
-        if (nameContains(n, "raw", "material", "resource", "材料", "原料", "资源", "原材料", "ingredient", "component", "部件")) {
-            addFb(fb, "terra", 3);
-            addFb(fb, "permutatio", 2);
+        if (AspectFallback
+            .nameContains(n, "raw", "material", "resource", "材料", "原料", "资源", "原材料", "ingredient", "component", "部件")) {
+            AspectFallback.addFb(fb, "terra", 3);
+            AspectFallback.addFb(fb, "permutatio", 2);
             matched = true;
         }
 
         // ===== Alloy / 合金 =====
         // Alloyed metals. metallum (metal) + ordo (order/combination) + potentia (process).
         // 合金。metallum（金属）+ ordo（秩序/组合）+ potentia（加工）。
-        if (nameContains(n, "alloy", "合金", "blend", "混合物", "mixture")) {
-            addFb(fb, "metallum", 4);
-            addFb(fb, "ordo", 2);
-            addFb(fb, "potentia", 1);
+        if (AspectFallback.nameContains(n, "alloy", "合金", "blend", "混合物", "mixture")) {
+            AspectFallback.addFb(fb, "metallum", 4);
+            AspectFallback.addFb(fb, "ordo", 2);
+            AspectFallback.addFb(fb, "potentia", 1);
             matched = true;
         }
 
         // ===== Powder / 粉末·颗粒 =====
         // Fine solid powders and pellets (not only dust). perditio (entropy/fine) + terra or potentia.
         // 细粉末与颗粒。perditio（熵/细小）+ terra 或 potentia。
-        if (nameContains(n, "powder", "粉末", "pellet", "颗粒", "grit", "particle")) {
-            addFb(fb, "perditio", 3);
-            addFb(fb, "terra", 2);
+        if (AspectFallback.nameContains(n, "powder", "粉末", "pellet", "颗粒", "grit", "particle")) {
+            AspectFallback.addFb(fb, "perditio", 3);
+            AspectFallback.addFb(fb, "terra", 2);
             matched = true;
         }
 
         // ===== Slime (solid) / 粘液·史莱姆 =====
         // Solid slime items (slimeball, etc.). limus (slime) + victus (life).
         // 固体粘液物品。limus（粘液）+ victus（生命）。
-        if (nameContains(n, "slimeball", "slime_ball", "粘液", "史莱姆", "史莱姆球", "gel", "gel_capsule")) {
-            addFb(fb, "limus", 4);
-            addFb(fb, "victus", 2);
+        if (AspectFallback.nameContains(n, "slimeball", "slime_ball", "粘液", "史莱姆", "史莱姆球", "gel", "gel_capsule")) {
+            AspectFallback.addFb(fb, "limus", 4);
+            AspectFallback.addFb(fb, "victus", 2);
             matched = true;
         }
 
         // ===== Lapis / 青金石 =====
         // Lapis lazuli and blue mineral. sensus (color/beauty) + ordo (order/enchanting).
         // 青金石与蓝色矿物。sensus（色彩/美）+ ordo（秩序/附魔）。
-        if (nameContains(n, "lapis", "青金石", "lazuli")) {
-            addFb(fb, "sensus", 4);
-            addFb(fb, "ordo", 2);
+        if (AspectFallback.nameContains(n, "lapis", "青金石", "lazuli")) {
+            AspectFallback.addFb(fb, "sensus", 4);
+            AspectFallback.addFb(fb, "ordo", 2);
             matched = true;
         }
 
         // ===== Scrap / Residue / 废料·残渣 =====
         // Industrial scrap and residues. perditio (waste/entropy) + metallum when metal-related.
         // 工业废料与残渣。perditio（废料/熵）+ 金属相关时 metallum。
-        if (nameContains(n, "scrap", "废料", "residue", "残渣", "slag", "dross", "byproduct", "副产品")) {
-            addFb(fb, "perditio", 4);
-            addFb(fb, "metallum", 2);
+        if (AspectFallback.nameContains(n, "scrap", "废料", "residue", "残渣", "slag", "dross", "byproduct", "副产品")) {
+            AspectFallback.addFb(fb, "perditio", 4);
+            AspectFallback.addFb(fb, "metallum", 2);
             matched = true;
         }
 
@@ -865,7 +1024,7 @@ public final class AspectFallback {
         // Items whose name contains a metal name but may not match ingot/plate (e.g. raw_iron, copper_chunk).
         // metallum + terra. Covers common metals in EN and CN.
         // 名称含金属名的物品（如 raw_iron、铜锭）。metallum + terra。覆盖中英文常见金属。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "iron",
             "铜",
@@ -914,26 +1073,26 @@ public final class AspectFallback {
             "niobium",
             "钽",
             "tantalum")) {
-            addFb(fb, "metallum", 4);
-            addFb(fb, "terra", 2);
+            AspectFallback.addFb(fb, "metallum", 4);
+            AspectFallback.addFb(fb, "terra", 2);
             matched = true;
         }
 
         // ===== Compound (solid) / 化合物 =====
         // Solid chemical compounds. potentia (reactive) + ordo (structured) or venenum when toxic.
         // 固体化合物。potentia（反应性）+ ordo（结构）或有毒时 venenum。
-        if (nameContains(n, "compound", "化合物", "chemical", "化学", "reagent", "试剂")) {
-            addFb(fb, "potentia", 3);
-            addFb(fb, "ordo", 2);
+        if (AspectFallback.nameContains(n, "compound", "化合物", "chemical", "化学", "reagent", "试剂")) {
+            AspectFallback.addFb(fb, "potentia", 3);
+            AspectFallback.addFb(fb, "ordo", 2);
             matched = true;
         }
 
         // ===== Wool / Cloth =====
         // Textile/fabric items. Gets pannus (cloth) + bestia (animal origin, since wool comes from sheep).
         // 纺织品/织物物品。获得 pannus（布料）+ bestia（动物来源，因为羊毛来自绵羊）。
-        if (nameContains(n, "wool", "carpet", "cloth", "fabric", "banner", "curtain")) {
-            addFb(fb, "pannus", 4);
-            addFb(fb, "bestia", 2);
+        if (AspectFallback.nameContains(n, "wool", "carpet", "cloth", "fabric", "banner", "curtain")) {
+            AspectFallback.addFb(fb, "pannus", 4);
+            AspectFallback.addFb(fb, "bestia", 2);
             matched = true;
         }
 
@@ -942,7 +1101,7 @@ public final class AspectFallback {
         // Keywords span the full range from simple gears to complex processors and generators.
         // 工业和科技物品，主要来自 GT/IC2/EnderIO。获得 machina + instrumentum。
         // 关键词涵盖从简单齿轮到复杂处理器和发电机的全部范围。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "machine",
             "circuit",
@@ -957,8 +1116,8 @@ public final class AspectFallback {
             "generator",
             "engine",
             "battery")) {
-            addFb(fb, "machina", 4);
-            addFb(fb, "instrumentum", 3);
+            AspectFallback.addFb(fb, "machina", 4);
+            AspectFallback.addFb(fb, "instrumentum", 3);
             matched = true;
         }
 
@@ -967,10 +1126,10 @@ public final class AspectFallback {
         // + iter (travel/path) since their purpose is to move things between locations.
         // 流体/物品/能量的传输基础设施。获得 metallum（材料）+ machina（科技）
         // + iter（旅行/路径）因为它们的目的是在位置之间移动物质。
-        if (nameContains(n, "pipe", "cable", "wire", "conduit", "duct", "tube")) {
-            addFb(fb, "metallum", 3);
-            addFb(fb, "machina", 2);
-            addFb(fb, "iter", 2);
+        if (AspectFallback.nameContains(n, "pipe", "cable", "wire", "conduit", "duct", "tube")) {
+            AspectFallback.addFb(fb, "metallum", 3);
+            AspectFallback.addFb(fb, "machina", 2);
+            AspectFallback.addFb(fb, "iter", 2);
             matched = true;
         }
 
@@ -979,7 +1138,7 @@ public final class AspectFallback {
         // Covers vanilla redstone components and modded sensors/detectors.
         // 红石动力逻辑和信号组件。获得 machina + potentia（能量/动力）。
         // 覆盖原版红石组件和模组传感器/探测器。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "redstone",
             "repeater",
@@ -989,8 +1148,8 @@ public final class AspectFallback {
             "pressure_plate",
             "detector",
             "sensor")) {
-            addFb(fb, "machina", 3);
-            addFb(fb, "potentia", 3);
+            AspectFallback.addFb(fb, "machina", 3);
+            AspectFallback.addFb(fb, "potentia", 3);
             matched = true;
         }
 
@@ -998,26 +1157,26 @@ public final class AspectFallback {
         // Passage and access blocks. Gets iter (travel/path) + machina (mechanism) since they
         // control player movement and access.
         // 通道和出入方块。获得 iter（旅行/路径）+ machina（机械），因为它们控制玩家移动和进出。
-        if (nameContains(n, "door", "trapdoor", "gate", "ladder", "hatch")) {
-            addFb(fb, "iter", 3);
-            addFb(fb, "machina", 2);
+        if (AspectFallback.nameContains(n, "door", "trapdoor", "gate", "ladder", "hatch")) {
+            AspectFallback.addFb(fb, "iter", 3);
+            AspectFallback.addFb(fb, "machina", 2);
             matched = true;
         }
 
         // ===== Keys / 钥匙 =====
         // Keys and lock-picking items. Gets instrumentum (tool for opening) + metallum (metal) + ordo (order/lock).
         // 钥匙与开锁类物品。获得 instrumentum（开锁工具）+ metallum（金属）+ ordo（秩序/锁）。
-        if (nameContains(n, "key", "钥匙", "lockpick", "lock_pick")) {
-            addFb(fb, "instrumentum", 4);
-            addFb(fb, "metallum", 2);
-            addFb(fb, "ordo", 2);
+        if (AspectFallback.nameContains(n, "key", "钥匙", "lockpick", "lock_pick")) {
+            AspectFallback.addFb(fb, "instrumentum", 4);
+            AspectFallback.addFb(fb, "metallum", 2);
+            AspectFallback.addFb(fb, "ordo", 2);
             matched = true;
         }
 
         // ===== Potions / 药水 =====
         // Potions, vials, brews. Gets praecantatio (magic/effect) + aqua (liquid) + victus (life/effect on body).
         // 药水、小瓶、酿造物。获得 praecantatio（魔法/效果）+ aqua（液态）+ victus（生命/作用于身体）。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "potion",
             "药水",
@@ -1030,73 +1189,73 @@ public final class AspectFallback {
             "tipped_arrow",
             "药瓶",
             "瓶子")) {
-            addFb(fb, "praecantatio", 4);
-            addFb(fb, "aqua", 3);
-            addFb(fb, "victus", 2);
+            AspectFallback.addFb(fb, "praecantatio", 4);
+            AspectFallback.addFb(fb, "aqua", 3);
+            AspectFallback.addFb(fb, "victus", 2);
             matched = true;
         }
 
         // ===== Bottles / 瓶子 (empty or generic) =====
         // Glass containers for liquids. vitreus (glass) + vacuos (empty container).
         // 盛装液体的玻璃容器。vitreus（玻璃）+ vacuos（空容器）。
-        if (nameContains(n, "bottle", "瓶子", "flask", "vial", "vessel", "vessel_empty")) {
-            addFb(fb, "vitreus", 3);
-            addFb(fb, "vacuos", 2);
+        if (AspectFallback.nameContains(n, "bottle", "瓶子", "flask", "vial", "vessel", "vessel_empty")) {
+            AspectFallback.addFb(fb, "vitreus", 3);
+            AspectFallback.addFb(fb, "vacuos", 2);
             matched = true;
         }
 
         // ===== Bow / Crossbow / 弓弩 =====
         // Ranged weapons. instrumentum (tool/weapon) + motus (motion/projectile).
         // 远程武器。instrumentum（工具/武器）+ motus（运动/弹射）。
-        if (nameContains(n, "bow", "弓", "crossbow", "弩", "arbalest")) {
-            addFb(fb, "instrumentum", 4);
-            addFb(fb, "motus", 3);
+        if (AspectFallback.nameContains(n, "bow", "弓", "crossbow", "弩", "arbalest")) {
+            AspectFallback.addFb(fb, "instrumentum", 4);
+            AspectFallback.addFb(fb, "motus", 3);
             matched = true;
         }
 
         // ===== Shield / 盾牌 =====
         // Defensive items. tutamen (protection) + metallum (metal/wood).
         // 防御物品。tutamen（防护）+ metallum（金属/木质）。
-        if (nameContains(n, "shield", "盾牌", "buckler")) {
-            addFb(fb, "tutamen", 5);
-            addFb(fb, "metallum", 2);
+        if (AspectFallback.nameContains(n, "shield", "盾牌", "buckler")) {
+            AspectFallback.addFb(fb, "tutamen", 5);
+            AspectFallback.addFb(fb, "metallum", 2);
             matched = true;
         }
 
         // ===== Fishing rod / 钓鱼竿 =====
         // Fishing tools. instrumentum + aqua (fishing in water) + vinculum (line/binding).
         // 钓鱼工具。instrumentum + aqua（水中钓鱼）+ vinculum（线/束缚）。
-        if (nameContains(n, "fishing_rod", "fishingrod", "fishing", "钓鱼", "钓竿")) {
-            addFb(fb, "instrumentum", 3);
-            addFb(fb, "aqua", 2);
-            addFb(fb, "vinculum", 2);
+        if (AspectFallback.nameContains(n, "fishing_rod", "fishingrod", "fishing", "钓鱼", "钓竿")) {
+            AspectFallback.addFb(fb, "instrumentum", 3);
+            AspectFallback.addFb(fb, "aqua", 2);
+            AspectFallback.addFb(fb, "vinculum", 2);
             matched = true;
         }
 
         // ===== Flint / Fire starter / 打火石 =====
         // Fire-making items. ignis (fire) + instrumentum (tool).
         // 取火物品。ignis（火）+ instrumentum（工具）。
-        if (nameContains(n, "flint", "firestarter", "lighter", "打火石", "火石", "igniter")) {
-            addFb(fb, "ignis", 4);
-            addFb(fb, "instrumentum", 2);
+        if (AspectFallback.nameContains(n, "flint", "firestarter", "lighter", "打火石", "火石", "igniter")) {
+            AspectFallback.addFb(fb, "ignis", 4);
+            AspectFallback.addFb(fb, "instrumentum", 2);
             matched = true;
         }
 
         // ===== Clock / 钟 =====
         // Time-keeping items. ordo (order/time) + machina (mechanism).
         // 计时物品。ordo（秩序/时间）+ machina（机械）。
-        if (nameContains(n, "clock", "钟", "watch", "timepiece")) {
-            addFb(fb, "ordo", 3);
-            addFb(fb, "machina", 2);
+        if (AspectFallback.nameContains(n, "clock", "钟", "watch", "timepiece")) {
+            AspectFallback.addFb(fb, "ordo", 3);
+            AspectFallback.addFb(fb, "machina", 2);
             matched = true;
         }
 
         // ===== Music disc / 唱片 =====
         // Recorded sound. sensus (senses/sound) + spiritus (soul/music).
         // 唱片/录音。sensus（感官/声音）+ spiritus（灵魂/音乐）。
-        if (nameContains(n, "disc", "record", "music_disc", "唱片", "music_record")) {
-            addFb(fb, "sensus", 4);
-            addFb(fb, "spiritus", 2);
+        if (AspectFallback.nameContains(n, "disc", "record", "music_disc", "唱片", "music_record")) {
+            AspectFallback.addFb(fb, "sensus", 4);
+            AspectFallback.addFb(fb, "spiritus", 2);
             matched = true;
         }
 
@@ -1105,10 +1264,11 @@ public final class AspectFallback {
         // + praecantatio (many modded books are magical in nature).
         // 包含知识的物品。获得高 cognitio（知识）+ arbor（纸来自木头）
         // + praecantatio（很多模组书籍本质上是魔法的）。
-        if (nameContains(n, "book", "tome", "lexicon", "codex", "guide", "manual", "scroll", "grimoire")) {
-            addFb(fb, "cognitio", 6);
-            addFb(fb, "arbor", 3);
-            addFb(fb, "praecantatio", 2);
+        if (AspectFallback
+            .nameContains(n, "book", "tome", "lexicon", "codex", "guide", "manual", "scroll", "grimoire")) {
+            AspectFallback.addFb(fb, "cognitio", 6);
+            AspectFallback.addFb(fb, "arbor", 3);
+            AspectFallback.addFb(fb, "praecantatio", 2);
             matched = true;
         }
 
@@ -1117,19 +1277,20 @@ public final class AspectFallback {
         // + potentia (power) + auram (aura/magical energy).
         // 来自神秘时代和其他魔法模组的明确魔法物品。获得 praecantatio（魔法）
         // + potentia（力量）+ auram（灵气/魔法能量）。
-        if (nameContains(n, "wand", "staff", "amulet", "talisman", "rune", "sigil", "thaumic", "arcane", "magic")) {
-            addFb(fb, "praecantatio", 4);
-            addFb(fb, "potentia", 3);
-            addFb(fb, "auram", 2);
+        if (AspectFallback
+            .nameContains(n, "wand", "staff", "amulet", "talisman", "rune", "sigil", "thaumic", "arcane", "magic")) {
+            AspectFallback.addFb(fb, "praecantatio", 4);
+            AspectFallback.addFb(fb, "potentia", 3);
+            AspectFallback.addFb(fb, "auram", 2);
             matched = true;
         }
 
         // ===== Rails =====
         // Rail blocks for minecarts. Gets metallum (iron material) + iter (travel/path).
         // 矿车轨道方块。获得 metallum（铁材料）+ iter（旅行/路径）。
-        if (nameContains(n, "rail")) {
-            addFb(fb, "metallum", 3);
-            addFb(fb, "iter", 3);
+        if (AspectFallback.nameContains(n, "rail")) {
+            AspectFallback.addFb(fb, "metallum", 3);
+            AspectFallback.addFb(fb, "iter", 3);
             matched = true;
         }
 
@@ -1140,7 +1301,7 @@ public final class AspectFallback {
         // 促进旅行或移动的物品。获得 iter（旅行）+ motus（运动）。
         // 广泛类别：载具（船、矿车）、传送（末影珍珠、传送门）、
         // 移动装备（喷气背包、滑翔翼）、弹射物（箭矢），甚至靴子。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "boat",
             "minecart",
@@ -1160,17 +1321,17 @@ public final class AspectFallback {
             "glider",
             "arrow",
             "boots")) {
-            addFb(fb, "iter", 4);
-            addFb(fb, "motus", 3);
+            AspectFallback.addFb(fb, "iter", 4);
+            AspectFallback.addFb(fb, "motus", 3);
             matched = true;
         }
 
         // ===== Dyes / Pigments =====
         // Color-producing items. Gets sensus (senses/perception) since dyes affect visual appearance.
         // 产生颜色的物品。获得 sensus（感知/感官）因为染料影响视觉外观。
-        if (nameContains(n, "dye", "ink", "pigment", "color", "stain")) {
-            addFb(fb, "sensus", 4);
-            addFb(fb, "aqua", 1);
+        if (AspectFallback.nameContains(n, "dye", "ink", "pigment", "color", "stain")) {
+            AspectFallback.addFb(fb, "sensus", 4);
+            AspectFallback.addFb(fb, "aqua", 1);
             matched = true;
         }
 
@@ -1179,9 +1340,9 @@ public final class AspectFallback {
         // Gets bestia (beast/creature) + spiritus (spirit/soul).
         // 与生物相关的物品：刷怪蛋、怪物掉落物（头颅）和下界之星。
         // 获得 bestia（野兽/生物）+ spiritus（灵魂/精神）。
-        if (nameContains(n, "egg", "star", "skull", "head")) {
-            addFb(fb, "bestia", 3);
-            addFb(fb, "spiritus", 3);
+        if (AspectFallback.nameContains(n, "egg", "star", "skull", "head")) {
+            AspectFallback.addFb(fb, "bestia", 3);
+            AspectFallback.addFb(fb, "spiritus", 3);
             matched = true;
         }
 
@@ -1190,46 +1351,56 @@ public final class AspectFallback {
         // Covers bone meal, bone blocks, and similar remnants.
         // 骨骼/死亡相关物品。获得 mortuus（死亡）+ corpus（身体/肉身）。
         // 覆盖骨粉、骨块和类似遗骸。
-        if (nameContains(n, "bone", "skeleton", "fossil")) {
-            addFb(fb, "mortuus", 4);
-            addFb(fb, "corpus", 3);
+        if (AspectFallback.nameContains(n, "bone", "skeleton", "fossil")) {
+            AspectFallback.addFb(fb, "mortuus", 4);
+            AspectFallback.addFb(fb, "corpus", 3);
             matched = true;
         }
 
         // ===== Leather / Hide / Pelts =====
         // Animal-derived skin/hide materials. Gets bestia (animal origin) + pannus (cloth/fabric).
         // 动物来源的皮革/兽皮材料。获得 bestia（动物来源）+ pannus（布料/织物）。
-        if (nameContains(n, "leather", "hide", "pelt", "rawhide")) {
-            addFb(fb, "bestia", 4);
-            addFb(fb, "pannus", 3);
+        if (AspectFallback.nameContains(n, "leather", "hide", "pelt", "rawhide")) {
+            AspectFallback.addFb(fb, "bestia", 4);
+            AspectFallback.addFb(fb, "pannus", 3);
             matched = true;
         }
 
         // ===== Feathers =====
         // Bird/creature feathers. Gets volatus (flight) + bestia (creature) + aer (air).
         // 鸟类/生物羽毛。获得 volatus（飞行）+ bestia（生物）+ aer（空气）。
-        if (nameContains(n, "feather", "plume", "quill")) {
-            addFb(fb, "volatus", 4);
-            addFb(fb, "bestia", 2);
-            addFb(fb, "aer", 2);
+        if (AspectFallback.nameContains(n, "feather", "plume", "quill")) {
+            AspectFallback.addFb(fb, "volatus", 4);
+            AspectFallback.addFb(fb, "bestia", 2);
+            AspectFallback.addFb(fb, "aer", 2);
             matched = true;
         }
 
         // ===== Coal / Charcoal / Fuel solids =====
         // Solid combustible materials. Gets ignis (fire/burn) + potentia (stored energy).
         // 固体可燃材料。获得 ignis（火焰/燃烧）+ potentia（储存的能量）。
-        if (nameContains(n, "coal", "charcoal", "coke", "peat", "lignite")) {
-            addFb(fb, "ignis", 4);
-            addFb(fb, "potentia", 3);
+        if (AspectFallback.nameContains(n, "coal", "charcoal", "coke", "peat", "lignite")) {
+            AspectFallback.addFb(fb, "ignis", 4);
+            AspectFallback.addFb(fb, "potentia", 3);
             matched = true;
         }
 
         // ===== Containers / Storage =====
         // Storage blocks and items. Gets vacuos (void/empty space) + arbor (usually wood-based).
         // 存储方块和物品。获得 vacuos（虚空/空间）+ arbor（通常是木质的）。
-        if (nameContains(n, "chest", "hopper", "storage", "dispenser", "dropper", "drawer", "locker", "bin", "crate")) {
-            addFb(fb, "vacuos", 4);
-            addFb(fb, "arbor", 2);
+        if (AspectFallback.nameContains(
+            n,
+            "chest",
+            "hopper",
+            "storage",
+            "dispenser",
+            "dropper",
+            "drawer",
+            "locker",
+            "bin",
+            "crate")) {
+            AspectFallback.addFb(fb, "vacuos", 4);
+            AspectFallback.addFb(fb, "arbor", 2);
             matched = true;
         }
 
@@ -1238,7 +1409,7 @@ public final class AspectFallback {
         // Covers vanilla crafting table, anvil, furnace, and modded workbenches.
         // 合成和加工工作站。获得 fabrico（制作）+ instrumentum（工具/器具）。
         // 覆盖原版工作台、铁砧、熔炉，以及模组工作台。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "anvil",
             "furnace",
@@ -1249,52 +1420,52 @@ public final class AspectFallback {
             "loom",
             "stonecutter",
             "enchant")) {
-            addFb(fb, "fabrico", 4);
-            addFb(fb, "instrumentum", 3);
+            AspectFallback.addFb(fb, "fabrico", 4);
+            AspectFallback.addFb(fb, "instrumentum", 3);
             matched = true;
         }
 
         // ===== Concrete / Cement =====
         // Industrial construction material from GT and other mods. Gets terra + ordo (processed/ordered).
         // 来自 GT 和其他模组的工业建筑材料。获得 terra + ordo（加工/有序）。
-        if (nameContains(n, "concrete", "cement", "asphalt")) {
-            addFb(fb, "terra", 4);
-            addFb(fb, "ordo", 2);
-            addFb(fb, "perditio", 1);
+        if (AspectFallback.nameContains(n, "concrete", "cement", "asphalt")) {
+            AspectFallback.addFb(fb, "terra", 4);
+            AspectFallback.addFb(fb, "ordo", 2);
+            AspectFallback.addFb(fb, "perditio", 1);
             matched = true;
         }
 
         // ===== Cobweb / String =====
         // Spider-related materials and binding fibers. Gets vinculum (binding/trap) + bestia (spider origin).
         // 蜘蛛相关材料和捆绑纤维。获得 vinculum（束缚/陷阱）+ bestia（蜘蛛来源）。
-        if (nameContains(n, "cobweb", "web", "string", "thread", "fiber", "silk")) {
-            addFb(fb, "vinculum", 3);
-            addFb(fb, "bestia", 2);
+        if (AspectFallback.nameContains(n, "cobweb", "web", "string", "thread", "fiber", "silk")) {
+            AspectFallback.addFb(fb, "vinculum", 3);
+            AspectFallback.addFb(fb, "bestia", 2);
             matched = true;
         }
 
         // ===== Paper / Maps =====
         // Paper products and cartography items. Gets cognitio (knowledge) + arbor (wood/paper origin).
         // 纸制品和地图物品。获得 cognitio（知识）+ arbor（木/纸来源）。
-        if (nameContains(n, "paper", "map", "cartograph", "blueprint")) {
-            addFb(fb, "cognitio", 3);
-            addFb(fb, "arbor", 2);
+        if (AspectFallback.nameContains(n, "paper", "map", "cartograph", "blueprint")) {
+            AspectFallback.addFb(fb, "cognitio", 3);
+            AspectFallback.addFb(fb, "arbor", 2);
             matched = true;
         }
 
         // ===== Food ingredients / Sweeteners =====
         // Raw food ingredients and sweeteners that aren't directly edible. Gets fames + aqua.
         // 非直接食用的生食材和甜味剂。获得 fames + aqua。
-        if (nameContains(n, "sugar", "spice", "salt", "flour", "dough", "butter", "cheese", "cream")) {
-            addFb(fb, "fames", 3);
-            addFb(fb, "aqua", 2);
+        if (AspectFallback.nameContains(n, "sugar", "spice", "salt", "flour", "dough", "butter", "cheese", "cream")) {
+            AspectFallback.addFb(fb, "fames", 3);
+            AspectFallback.addFb(fb, "aqua", 2);
             matched = true;
         }
 
         // ===== Rubber / Plastic / Polymer =====
         // Synthetic/industrial flexible materials from GT/IC2. Gets limus (slime/flexibility) + machina.
         // 来自 GT/IC2 的合成/工业柔性材料。获得 limus（史莱姆/柔性）+ machina。
-        if (nameContains(
+        if (AspectFallback.nameContains(
             n,
             "rubber",
             "plastic",
@@ -1304,22 +1475,20 @@ public final class AspectFallback {
             "ptfe",
             "polycarbonate",
             "epoxy")) {
-            addFb(fb, "limus", 3);
-            addFb(fb, "machina", 2);
+            AspectFallback.addFb(fb, "limus", 3);
+            AspectFallback.addFb(fb, "machina", 2);
             matched = true;
         }
 
+        // User-defined keyword fallbacks from config/ThaumicAllAspect/keyword-fallback.cfg
+        // 用户配置的关键词兜底
+        FallbackConfig.applyKeywordFallbacks(n, fb);
+
         // ===== Unmatched: generic fallback =====
-        // Absolute fallback for completely unknown items that matched no keyword category at all.
-        // Gets minimal ordo (order) + permutatio (exchange) + perditio (entropy) — the most generic,
-        // neutral aspects that don't imply anything specific about the item.
-        // 完全未知物品的绝对兜底，没有匹配到任何关键词类别。
-        // 获得最少的 ordo（秩序）+ permutatio（交换）+ perditio（熵）—
-        // 最通用、中性的要素，不暗示物品的任何具体属性。
         if (!matched) {
-            addFb(fb, "ordo", 2);
-            addFb(fb, "permutatio", 2);
-            addFb(fb, "perditio", 1);
+            AspectFallback.addFb(fb, "ordo", 2);
+            AspectFallback.addFb(fb, "permutatio", 2);
+            AspectFallback.addFb(fb, "perditio", 1);
         }
 
         return fb;
@@ -1333,8 +1502,8 @@ public final class AspectFallback {
      * Returns true on the first match — short-circuits for performance.
      * 在第一次匹配时返回 true — 为性能而短路求值。
      */
-    private static boolean nameContains(String combined, String... keywords) {
-        for (String kw : keywords) {
+    private static boolean nameContains(final String combined, final String... keywords) {
+        for (final String kw : keywords) {
             if (combined.contains(kw)) return true;
         }
         return false;
@@ -1346,8 +1515,8 @@ public final class AspectFallback {
      * 通过标签名安全地向兜底列表添加要素。如果要素不存在（即提供它的模组未加载），则静默跳过，
      * 避免 NullPointerException。
      */
-    private static void addFb(AspectList fb, String tag, int amount) {
-        Aspect a = AspectUtils.getAspect(tag);
-        if (a != null) fb.add(a, amount);
+    private static void addFb(final AspectList fb, final String tag, final int amount) {
+        final Aspect a = AspectUtils.getAspect(tag);
+        if (null != a) fb.add(a, amount);
     }
 }
