@@ -54,10 +54,10 @@ public enum AspectUtils {
      * Maximum recursion depth for recipe-based aspect derivation.
      * Prevents infinite loops when recipes reference each other in nested chains
      * (e.g., item A crafts from B, B crafts from C, ... back to A).
-     * 配方推导的最大递归深度。
-     * 防止嵌套配方链中的无限循环（例如 A 由 B 合成，B 由 C 合成，…… 最终回到 A）。
+     * Value is loaded from config at startup (default 10).
+     * 配方推导的最大递归深度，从配置文件加载（默认 10），用于防止嵌套配方链中的无限循环。
      */
-    public static final int MAX_RECIPE_DEPTH = 10;
+    public static int MAX_RECIPE_DEPTH = 10;
     /**
      * Per-scan aspect cache keyed by "registryName@meta".
      * Cleared between multi-pass retries so that later passes can re-derive
@@ -744,7 +744,15 @@ public enum AspectUtils {
                 final Object result = m.invoke(recipe);
                 AspectUtils.collectInputsFromObject(result, inputs);
                 if (!inputs.isEmpty()) return inputs;
-            } catch (final Exception ignored) {}
+            } catch (final Exception e) {
+                ModFileLogger.warn(
+                    "[ThaumicAllAspect] Error calling " + name
+                        + "() on recipe "
+                        + recipe.getClass()
+                            .getName()
+                        + ": "
+                        + e.getMessage());
+            }
         }
 
         // Strategy 2: Scan declared fields (including superclasses) for ingredient-like data.
@@ -767,7 +775,15 @@ public enum AspectUtils {
 
                     AspectUtils.collectInputsFromObject(val, inputs);
                     if (!inputs.isEmpty()) return inputs;
-                } catch (final Exception ignored) {}
+                } catch (final Exception e) {
+                    ModFileLogger.warn(
+                        "[ThaumicAllAspect] Error reading field " + f.getName()
+                            + " from recipe "
+                            + recipe.getClass()
+                                .getName()
+                            + ": "
+                            + e.getMessage());
+                }
             }
             clazz = clazz.getSuperclass();
         }

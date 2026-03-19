@@ -132,6 +132,23 @@ public class ThaumicAllAspect {
                 "Global decay factor for derived aspects. 0.1 = 90% decay (keep 10%), 1.0 = no decay. "
                     + "Each derivation layer multiplies aspect amounts by this value, with a per-aspect minimum of 1.");
             AspectUtils.RECIPE_DECAY = decay;
+            // Advanced tuning knobs for very large modpacks.
+            AspectUtils.MAX_RECIPE_DEPTH = cfg.getInt(
+                "maxRecipeDepth",
+                "advanced",
+                AspectUtils.MAX_RECIPE_DEPTH,
+                4,
+                64,
+                "Maximum recursion depth for recipe-based aspect derivation. Higher values may increase load time.");
+            int rounds = cfg.getInt(
+                "recipeFirstMaxRounds",
+                "advanced",
+                6,
+                1,
+                32,
+                "Maximum passes for the recipe-first pipeline. Higher values help long chains like A=B, A+B=C, "
+                    + "but increase scan time.");
+            com.sunmilktea.thaumicallaspect.aspect.scan.RecipeFirstAspectPipeline.setMaxRounds(rounds);
             if (cfg.hasChanged()) cfg.save();
             ModFileLogger.setScanLogLevel(scanLogLevel);
         }

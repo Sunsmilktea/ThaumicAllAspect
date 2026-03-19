@@ -752,12 +752,34 @@ public enum AspectScanner {
                     displayName = "";
                 }
 
-                final String lowerName = (null != displayName ? displayName : "") + " "
-                    + (null != regName ? regName : "");
-                final String lower = lowerName.toLowerCase();
+                final String lowerName = ((null != displayName ? displayName : "") + " "
+                    + (null != regName ? regName : "")).toLowerCase();
 
-                // 粒 / nugget 关键字匹配
-                if (!lower.contains("粒") && !lower.contains("nugget")) continue;
+                // 扩展“小份物品”关键字匹配：只对这些小颗粒/碎片类物品做 1→2 的提升
+                boolean isSmallPiece = lowerName.contains("粒") || lowerName.contains("片")
+                    || lowerName.contains("粉")
+                    || lowerName.contains("末")
+                    || lowerName.contains("晶")
+                    || lowerName.contains("碎")
+                    || lowerName.contains("屑")
+                    || lowerName.contains("珠")
+                    || lowerName.contains("滴")
+                    || lowerName.contains("点")
+                    || lowerName.contains("nugget")
+                    || lowerName.contains("shard")
+                    || lowerName.contains("dust")
+                    || lowerName.contains("powder")
+                    || lowerName.contains("crystal")
+                    || lowerName.contains("gem")
+                    || lowerName.contains("bead")
+                    || lowerName.contains("pellet")
+                    || lowerName.contains("flake")
+                    || lowerName.contains("chip")
+                    || lowerName.contains("sliver")
+                    || lowerName.contains("mote")
+                    || lowerName.contains("speck");
+
+                if (!isSmallPiece) continue;
 
                 boolean allOne = true;
                 for (final Aspect a : aspects) {

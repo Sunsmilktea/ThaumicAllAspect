@@ -33,7 +33,19 @@ import thaumcraft.api.crafting.ShapelessArcaneRecipe;
 public enum RecipeFirstAspectPipeline {
     ;
 
-    private static final int MAX_ROUNDS = 6;
+    /** Max rounds for recipe-first propagation, configurable via thaumicallaspect.cfg (default 6). */
+    private static int maxRounds = 6;
+
+    public static void setMaxRounds(final int rounds) {
+        // Guardrail: keep it in a sane range.
+        if (rounds < 1) {
+            RecipeFirstAspectPipeline.maxRounds = 1;
+        } else if (rounds > 32) {
+            RecipeFirstAspectPipeline.maxRounds = 32;
+        } else {
+            RecipeFirstAspectPipeline.maxRounds = rounds;
+        }
+    }
 
     /**
      * Runs the recipe-first pipeline: collect all recipes from current indices, then run
@@ -53,16 +65,19 @@ public enum RecipeFirstAspectPipeline {
 
         final Set<String> pending = new HashSet<>();
 
-        for (int round = 1; RecipeFirstAspectPipeline.MAX_ROUNDS >= round; round++) {
+        for (int round = 1; RecipeFirstAspectPipeline.maxRounds >= round; round++) {
             final Set<String> toProcess = (1 == round) ? new HashSet<>() : new HashSet<>(pending);
             if (1 == round) {
-                for (final RecipeRecord r : all) toProcess.add(r.outputKey);
+                for (final RecipeRecord r : all) {
+                    toProcess.add(r.key());
+                }
             }
             pending.clear();
 
             int roundRegistered = 0;
             for (final RecipeRecord rec : all) {
-                if (!toProcess.contains(rec.outputKey)) continue;
+                final String outKey = rec.key();
+                if (!toProcess.contains(outKey)) continue;
 
                 final AspectList combined = new AspectList();
                 boolean allHaveAspect = true;
@@ -77,7 +92,7 @@ public enum RecipeFirstAspectPipeline {
                 }
 
                 if (!allHaveAspect || 0 == combined.size()) {
-                    pending.add(rec.outputKey);
+                    pending.add(outKey);
                     continue;
                 }
 
@@ -88,29 +103,27 @@ public enum RecipeFirstAspectPipeline {
                 final AspectList scaled = AspectUtils
                     .ensureMinOnePerAspect(AspectUtils.scaleAspects(combined, AspectUtils.RECIPE_DECAY));
                 if (null == scaled || 0 == scaled.size()) {
-                    pending.add(rec.outputKey);
+                    pending.add(outKey);
                     continue;
                 }
 
                 ThaumcraftApi.registerObjectTag(rec.outputStack, scaled.copy());
-                AspectUtils.CACHE.put(rec.outputKey, scaled.copy());
+                AspectUtils.CACHE.put(outKey, scaled.copy());
                 AspectUtils.statNewlyRegistered++;
                 roundRegistered++;
-                pending.remove(rec.outputKey);
+                pending.remove(outKey);
             }
 
             ModFileLogger.info(
-                "[ThaumicAllAspect] " + tr("[Pass")
-                    + " "
-                    + round
-                    + "] "
-                    + tr("Recipe-first:")
-                    + " "
-                    + roundRegistered
-                    + " registered, "
-                    + pending.size()
-                    + " "
-                    + tr("pending"));
+                String.format(
+                    "[ThaumicAllAspect] %s %d] %s %d %s %d %s",
+                    tr("[Pass"),
+                    round,
+                    tr("Recipe-first:"),
+                    roundRegistered,
+                    tr("registered,"),
+                    pending.size(),
+                    tr("pending")));
 
             if (pending.isEmpty() || 0 == roundRegistered) break;
         }
@@ -131,10 +144,9 @@ public enum RecipeFirstAspectPipeline {
                     }
                     if (null == output || null == output.getItem()) continue;
                     final ItemStack normOut = AspectUtils.normalizeForLookup(output);
-                    final String key = AspectUtils.key(normOut);
                     final List<List<ItemStack>> inputs = AspectUtils.getRecipeInputs(recipe);
                     if (inputs.isEmpty()) continue;
-                    out.add(new RecipeRecord(key, normOut, inputs));
+                    out.add(new RecipeRecord(normOut, inputs));
                 }
             }
         }
@@ -148,10 +160,9 @@ public enum RecipeFirstAspectPipeline {
                     final ItemStack output = entry.getValue();
                     if (null == output || null == output.getItem() || null == in || null == in.getItem()) continue;
                     final ItemStack normOut = AspectUtils.normalizeForLookup(output);
-                    final String key = AspectUtils.key(normOut);
                     final List<List<ItemStack>> inputs = Collections
                         .singletonList(Collections.singletonList(AspectUtils.normalizeForLookup(in)));
-                    out.add(new RecipeRecord(key, normOut, inputs));
+                    out.add(new RecipeRecord(normOut, inputs));
                 }
             }
         }
@@ -204,8 +215,7 @@ public enum RecipeFirstAspectPipeline {
                     if (null == recipeOut || null == recipeOut.getItem() || null == inputs || inputs.isEmpty())
                         continue;
                     final ItemStack normOut = AspectUtils.normalizeForLookup(recipeOut);
-                    final String key = AspectUtils.key(normOut);
-                    out.add(new RecipeRecord(key, normOut, inputs));
+                    out.add(new RecipeRecord(normOut, inputs));
                 }
             }
         }
@@ -213,19 +223,19 @@ public enum RecipeFirstAspectPipeline {
         return out;
     }
 
-    /**
-     * One recipe: output key, output stack (normalized), and per-slot input alternatives.
-     */
+    /** One recipe: output stack (normalized) and per-slot input alternatives. */
     static final class RecipeRecord {
 
-        final String outputKey;
         final ItemStack outputStack;
         final List<List<ItemStack>> inputs;
 
-        RecipeRecord(final String outputKey, final ItemStack outputStack, final List<List<ItemStack>> inputs) {
-            this.outputKey = outputKey;
+        RecipeRecord(final ItemStack outputStack, final List<List<ItemStack>> inputs) {
             this.outputStack = outputStack;
             this.inputs = inputs;
+        }
+
+        String key() {
+            return AspectUtils.key(this.outputStack);
         }
     }
 }
