@@ -340,6 +340,35 @@ public enum AspectUtils {
     }
 
     /**
+     * Normalizes an AspectList so that every aspect has at least amount 1.
+     * Used as a final safety net before registering aspects to TC or writing to CACHE,
+     * to avoid any accidental 0/negative amounts slipping through from configs or mods.
+     * <p>
+     * 将 AspectList 归一化为每种要素至少 1 点。
+     * 在注册到 TC 或写入 CACHE 前作为最后一道安全网，避免配置或其它模组传入 0/负数数量。
+     */
+    public static AspectList ensureMinOnePerAspect(final AspectList src) {
+        if (null == src || 0 == src.size()) return src;
+        try {
+            final Aspect[] aspects = src.getAspects();
+            if (null == aspects || 0 == aspects.length) return src;
+            final AspectList out = new AspectList();
+            for (final Aspect a : aspects) {
+                if (null == a) continue;
+                final int amt = src.getAmount(a);
+                if (amt <= 0) {
+                    out.add(a, 1);
+                } else {
+                    out.add(a, amt);
+                }
+            }
+            return 0 < out.size() ? out : src;
+        } catch (final Exception e) {
+            return src;
+        }
+    }
+
+    /**
      * Returns the sum of all aspect amounts in the list.
      * Used as a scoring metric when choosing the best ingredient from alternatives.
      * 返回列表中所有要素数量的总和。用作从备选原料中选择最佳原料时的评分指标。
@@ -883,7 +912,7 @@ public enum AspectUtils {
                 final Object itemObj = Item.itemRegistry.getObject(regName);
                 if (!(itemObj instanceof Item)) continue;
                 final Item item = (Item) itemObj;
-                final AspectList al = AspectUtils.parseAspectList(val);
+                final AspectList al = AspectUtils.ensureMinOnePerAspect(AspectUtils.parseAspectList(val));
                 if (null == al || 0 == al.size()) continue;
                 final ItemStack stack = new ItemStack(item, 1, meta);
                 ThaumcraftApi.registerObjectTag(stack, al.copy());

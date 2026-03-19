@@ -1971,7 +1971,10 @@ public enum ModRecipeBridge {
         final AspectList result = AspectUtils.scaleAspects(inputAsp, AspectUtils.RECIPE_DECAY);
         if (null == result || 0 == result.size()) return 0;
 
-        ThaumcraftApi.registerObjectTag(output, result.copy());
+        ThaumcraftApi.registerObjectTag(
+            output,
+            AspectUtils.ensureMinOnePerAspect(result)
+                .copy());
         AspectUtils.CACHE.put(AspectUtils.key(output), result.copy());
         AspectUtils.statNewlyRegistered++;
 
@@ -2033,7 +2036,10 @@ public enum ModRecipeBridge {
 
         if (null == result || 0 == result.size()) return 0;
 
-        ThaumcraftApi.registerObjectTag(output, result.copy());
+        ThaumcraftApi.registerObjectTag(
+            output,
+            AspectUtils.ensureMinOnePerAspect(result)
+                .copy());
         AspectUtils.CACHE.put(AspectUtils.key(output), result.copy());
         AspectUtils.statNewlyRegistered++;
 

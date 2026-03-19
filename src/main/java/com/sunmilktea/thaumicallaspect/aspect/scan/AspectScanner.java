@@ -42,6 +42,7 @@ import com.sunmilktea.thaumicallaspect.logging.ModFileLogger;
 
 import thaumcraft.api.ThaumcraftApi;
 import thaumcraft.api.ThaumcraftApiHelper;
+import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.crafting.CrucibleRecipe;
 import thaumcraft.api.crafting.IArcaneRecipe;
@@ -302,7 +303,10 @@ public enum AspectScanner {
                             } catch (final Exception e) {
                                 displayName = "?";
                             }
-                            ThaumcraftApi.registerObjectTag(stack, aspects.copy());
+                            ThaumcraftApi.registerObjectTag(
+                                stack,
+                                AspectUtils.ensureMinOnePerAspect(aspects)
+                                    .copy());
                             AspectUtils.statNewlyRegistered++;
                             modReg++;
                             hasAny = true;
@@ -481,7 +485,10 @@ public enum AspectScanner {
                         } catch (final Exception e) {
                             displayName = "?";
                         }
-                        ThaumcraftApi.registerObjectTag(stack, aspects.copy());
+                        ThaumcraftApi.registerObjectTag(
+                            stack,
+                            AspectUtils.ensureMinOnePerAspect(aspects)
+                                .copy());
                         AspectUtils.statNewlyRegistered++;
                         passReg++;
                         AspectUtils.FAILED_IDS.remove(id);
@@ -685,7 +692,10 @@ public enum AspectScanner {
                     final ItemStack stack = new ItemStack(item, 1, meta);
                     if (AspectUtils.hasAspect(stack)) continue;
 
-                    ThaumcraftApi.registerObjectTag(stack, donor.copy());
+                    ThaumcraftApi.registerObjectTag(
+                        stack,
+                        AspectUtils.ensureMinOnePerAspect(donor)
+                            .copy());
                     AspectUtils.CACHE.put(AspectUtils.key(stack), donor.copy());
                     metaFixed++;
                 }
@@ -698,6 +708,88 @@ public enum AspectScanner {
                     + metaFixed
                     + " "
                     + tr("item metas");
+                ModFileLogger.info(msg);
+                ModFileLogger.scanSummary(msg);
+            }
+        }
+
+        // --- Post-scan nugget/粒 adjustment ---
+        // Some very small items (e.g., "xxx 粒" or "xxx nugget") end up with aspects where
+        // every entry is exactly 1, which in the TC UI renders as icons without numbers.
+        // To make these more readable, we bump any pure-1 lists for "粒"/"nugget"-like items
+        // so that each aspect has at least 2 points.
+        // 部分粒状物品（如名称包含“粒”或 "nugget"）最终会得到所有要素都为 1 点的配置，
+        // 在 TC 界面中会只显示图标而不显示数字。为提高可读性，这里对这类物品做一次补正：
+        // 若所有要素数量都为 1，则将每种要素提升到至少 2 点。
+        {
+            int nuggetAdjusted = 0;
+            for (final Map.Entry<String, AspectList> entry : AspectUtils.CACHE.entrySet()) {
+                final String key = entry.getKey(); // modid:item@meta
+                if (null == key) continue;
+                final int atIdx = key.indexOf('@');
+                if (0 >= atIdx) continue;
+                final String regName = key.substring(0, atIdx);
+                final String metaStr = key.substring(atIdx + 1);
+                final Object itemObj = Item.itemRegistry.getObject(regName);
+                if (!(itemObj instanceof Item)) continue;
+                final Item item = (Item) itemObj;
+                final int meta;
+                try {
+                    meta = Integer.parseInt(metaStr);
+                } catch (final NumberFormatException ignored) {
+                    continue;
+                }
+
+                final AspectList al = entry.getValue();
+                if (null == al || 0 == al.size()) continue;
+                final Aspect[] aspects = al.getAspects();
+                if (null == aspects || 0 == aspects.length) continue;
+
+                String displayName;
+                try {
+                    displayName = new ItemStack(item, 1, meta).getDisplayName();
+                } catch (final Exception e) {
+                    displayName = "";
+                }
+
+                final String lowerName = (null != displayName ? displayName : "") + " "
+                    + (null != regName ? regName : "");
+                final String lower = lowerName.toLowerCase();
+
+                // 粒 / nugget 关键字匹配
+                if (!lower.contains("粒") && !lower.contains("nugget")) continue;
+
+                boolean allOne = true;
+                for (final Aspect a : aspects) {
+                    if (null == a) continue;
+                    final int amt = al.getAmount(a);
+                    if (amt != 1) {
+                        allOne = false;
+                        break;
+                    }
+                }
+                if (!allOne) continue;
+
+                // 将所有要素从 1 提升到 2
+                for (final Aspect a : aspects) {
+                    if (null == a) continue;
+                    if (al.getAmount(a) == 1) {
+                        al.add(a, 1);
+                    }
+                }
+
+                // 重新注册到 TC 并写回缓存
+                final ItemStack stack = new ItemStack(item, 1, meta);
+                ThaumcraftApi.registerObjectTag(stack, al.copy());
+                AspectUtils.CACHE.put(key, al);
+                nuggetAdjusted++;
+            }
+
+            if (0 < nuggetAdjusted) {
+                final String msg = tr("[Post-scan]") + " "
+                    + tr("Adjusted nugget-like items to min amount 2:")
+                    + " "
+                    + nuggetAdjusted;
                 ModFileLogger.info(msg);
                 ModFileLogger.scanSummary(msg);
             }

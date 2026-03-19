@@ -85,7 +85,8 @@ public enum RecipeFirstAspectPipeline {
                 // 若产出已有源质（TC 或预加载）则跳过，不覆盖。
                 if (null != AspectUtils.getExistingAspectsOnly(rec.outputStack)) continue;
 
-                final AspectList scaled = AspectUtils.scaleAspects(combined, AspectUtils.RECIPE_DECAY);
+                final AspectList scaled = AspectUtils
+                    .ensureMinOnePerAspect(AspectUtils.scaleAspects(combined, AspectUtils.RECIPE_DECAY));
                 if (null == scaled || 0 == scaled.size()) {
                     pending.add(rec.outputKey);
                     continue;

@@ -151,7 +151,7 @@ public final class FallbackConfig {
                     .trim();
                 String val = line.substring(eq + 1)
                     .trim();
-                AspectList al = AspectUtils.parseAspectListPublic(val);
+                AspectList al = AspectUtils.ensureMinOnePerAspect(AspectUtils.parseAspectListPublic(val));
                 if (al != null && al.size() > 0) keywordFallback.put(keyword, al);
             }
         } catch (IOException ex) {
@@ -173,7 +173,7 @@ public final class FallbackConfig {
                     .trim();
                 String val = line.substring(eq + 1)
                     .trim();
-                AspectList al = AspectUtils.parseAspectListPublic(val);
+                AspectList al = AspectUtils.ensureMinOnePerAspect(AspectUtils.parseAspectListPublic(val));
                 if (al != null && al.size() > 0) itemFallback.put(key, al);
             }
         } catch (IOException ex) {
