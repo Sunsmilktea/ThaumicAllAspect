@@ -9,7 +9,7 @@
     "updateUrl": "",
     "authorList": ["SunMilktea"],
     "credits": "Built with the GTNH ExampleMod template",
-    "logoFile": "",
+    "logoFile": "logo.png",
     "screenshots": [],
     "dependencies": ["Thaumcraft", "Baubles"]
   }

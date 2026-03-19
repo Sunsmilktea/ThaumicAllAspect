@@ -116,7 +116,16 @@ gradlew.bat build
 
 ---
 
-## 许可
+## 许可 License
 
-如仓库内包含 `LICENSE` 文件，请以该文件为准；  
-若暂未添加许可协议，则默认 **保留所有权利**，请勿在未经许可的情况下商用或重新分发修改版。
+本模组以 **GNU LGPL v3** 协议发布：
+
+- 你可以在整合包中自由使用和分发本模组；  
+- 你可以修改并发布修改版，但对本模组源码的修改部分需要在 LGPL v3 兼容的条件下开放源代码；  
+- 在此基础上，你的整合包或依赖本模组的其他模组可以采用任意协议（包括闭源 / 商业），只要不把本模组的 LGPL 代码直接并入闭源部分。
+
+The mod is licensed under **GNU LGPL v3**:
+
+- You are free to use and distribute it in modpacks.  
+- You may modify and redistribute it, as long as your modifications to this library remain under LGPL‑compatible terms and the corresponding source is available.  
+- Your own modpack or other mods can use any license (including proprietary), as long as they do not directly absorb LGPL‑licensed code into closed‑source components.
