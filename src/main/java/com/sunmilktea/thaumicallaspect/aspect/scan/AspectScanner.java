@@ -156,11 +156,11 @@ public enum AspectScanner {
             configDir.mkdirs();
         }
 
-        // Load aspect cache from config so server can have full aspects (e.g. Botania) without reflecting mods.
-        // When an aspect cache is present, we treat it as authoritative and skip the expensive full recomputation;
-        // deleting the cache file is what triggers a fresh scan.
-        // 当存在要素缓存文件时，将其视为权威数据并跳过昂贵的完整重算；
-        // 只有删除该缓存文件时，才会重新执行完整扫描。
+        // Load aspect cache from config as an initial seed so servers can ship a precomputed baseline
+        // (e.g. from dev environment). Even when a cache is present, we still run the full pipeline
+        // once per startup to pick up new recipes / items, but never overwrite existing aspects.
+        // 从配置中加载要素缓存作为初始种子（例如开发环境预先生成的基线）。
+        // 即使存在缓存，每次启动仍会跑一遍完整流水线以捕获新增配方/物品，但不会覆盖已有要素。
         final File configCache = new File(configDir, "aspect-cache.cfg");
         if (configCache.isFile()) {
             final int n = AspectUtils.loadAspectCacheFromFile(configCache);
@@ -169,32 +169,18 @@ public enum AspectScanner {
                     "[ThaumicAllAspect] Loaded " + n
                         + " aspect entries from config cache (config/ThaumicAllAspect/aspect-cache.cfg).");
             }
-            // Apply user item/fluid fallbacks on top of cache (config/ThaumicAllAspect/item-fallback.cfg)
-            FallbackConfig.load(configDir);
-            FallbackConfig.applyItemFallbacksToCache();
-            AspectScanner.runVerifyFromConfig();
-
-            final long totalMs = System.currentTimeMillis() - tGlobal;
-            final String doneMsg = "========== [ThaumicAllAspect] " + tr("Full scan complete, total time")
-                + " "
-                + totalMs
-                + " ms (cache only) ==========";
-            ModFileLogger.info(doneMsg);
-            ModFileLogger.scanSummary(doneMsg);
-            ModFileLogger.endScanLog();
-            return;
         }
 
         AspectScanner.buildOreDictIndex();
         // Load user fallbacks (keyword + item/block/fluid) from config/ThaumicAllAspect/
         FallbackConfig.load(configDir);
         FallbackConfig.applyItemFallbacksToCache();
-        // Prefer NEI as recipe source when loaded (mod acts as NEI addon); otherwise vanilla indices.
-        if (!NEIRecipeAdapter.fillFromNEI()) {
-            AspectScanner.buildCraftingRecipeIndex();
-            AspectScanner.buildFurnaceIndex();
-        }
+        // Always build vanilla/TC indices first, then let NEI enrich/override where available.
+        AspectScanner.buildCraftingRecipeIndex();
+        AspectScanner.buildFurnaceIndex();
         AspectScanner.buildTCRecipeIndex();
+        // NEI integration: merge additional recipes on top of existing indexes (do NOT replace).
+        NEIRecipeAdapter.fillFromNEI();
 
         // --- Phase 2: Collect all items/blocks, grouped by mod ID ---
         // --- 第 2 阶段：收集所有物品/方块，按模组 ID 分组 ---
@@ -254,8 +240,8 @@ public enum AspectScanner {
                 + " "
                 + tr("mods"));
 
-        // --- Phase 3a: Recipe-first pipeline (up to 8 rounds) — no cache path only ---
-        // 无缓存时才执行：先按配方迭代最多 8 轮，为所有「输入已齐」的配方产出赋源质。
+        // --- Phase 3a: Recipe-first pipeline (up to 6 rounds) ---
+        // 无论是否存在缓存：先按配方迭代最多 6 轮，为所有「输入已齐」的配方产出赋源质。
         RecipeFirstAspectPipeline.run();
 
         // --- Phase 3b: Single item pass — fill remaining via OreDict / type / keyword fallback ---

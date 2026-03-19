@@ -81,7 +81,7 @@ public enum NEIRecipeAdapter {
         final ArrayList<ICraftingHandler> handlers = GuiCraftingRecipe.getCraftingHandlers("all");
         if (null == handlers || handlers.isEmpty()) return false;
 
-        AspectUtils.RECIPE_INDEX = new HashMap<>();
+        if (null == AspectUtils.RECIPE_INDEX) AspectUtils.RECIPE_INDEX = new HashMap<>();
         if (null == AspectUtils.RECIPE_OUTPUT_METAS) AspectUtils.RECIPE_OUTPUT_METAS = new HashMap<>();
         int count = 0;
 
@@ -144,7 +144,7 @@ public enum NEIRecipeAdapter {
         final ArrayList<ICraftingHandler> handlers = GuiCraftingRecipe.getCraftingHandlers("smelting");
         if (null == handlers || handlers.isEmpty()) return false;
 
-        AspectUtils.FURNACE_INDEX = new HashMap<>();
+        if (null == AspectUtils.FURNACE_INDEX) AspectUtils.FURNACE_INDEX = new HashMap<>();
         if (null == AspectUtils.RECIPE_OUTPUT_METAS) AspectUtils.RECIPE_OUTPUT_METAS = new HashMap<>();
         int count = 0;
 

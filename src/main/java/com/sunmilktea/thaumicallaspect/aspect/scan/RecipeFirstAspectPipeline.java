@@ -24,24 +24,24 @@ import thaumcraft.api.crafting.ShapelessArcaneRecipe;
 
 /**
  * Recipe-first aspect pipeline: iterate recipes (not items), assign output aspects when all
- * inputs have aspects; record outputs that had empty input for next round; up to 8 rounds.
+ * inputs have aspects; record outputs that had empty input for next round; up to 6 rounds.
  * Ensures e.g. A+B=C, A=B, only A has 3 → after round 1 B gets 3, after round 2 C gets 6.
  * <p>
  * 配方优先管线：按配方迭代（不按物品），当所有输入均有源质时赋 output 源质；
- * 记录「第一次 input 为空」的 output 下一轮再算；最多 8 轮。
+ * 记录「第一次 input 为空」的 output 下一轮再算；最多 6 轮。
  */
 public enum RecipeFirstAspectPipeline {
     ;
 
-    private static final int MAX_ROUNDS = 8;
+    private static final int MAX_ROUNDS = 6;
 
     /**
      * Runs the recipe-first pipeline: collect all recipes from current indices, then run
-     * up to 8 rounds. Each round: for (pending or all) recipes, if all inputs have aspect
+     * up to 6 rounds. Each round: for (pending or all) recipes, if all inputs have aspect
      * then sum inputs, scale by RECIPE_DECAY, register output; else add output to pending.
      * Call this only when aspect-cache.cfg does NOT exist (full recompute).
      * <p>
-     * 运行配方优先管线：从当前索引收集所有配方，然后最多 8 轮。每轮：对（待处理或全部）配方，
+     * 运行配方优先管线：从当前索引收集所有配方，然后最多 6 轮。每轮：对（待处理或全部）配方，
      * 若所有输入均有源质则求和并乘以 RECIPE_DECAY 注册 output；否则将 output 加入待处理。
      */
     public static void run() {
