@@ -42,8 +42,7 @@ import thaumcraft.api.aspects.AspectList;
  * 类别之间不互斥；一个物品可以匹配多个类别，要素会叠加。</li>
  * </ol>
  */
-public enum AspectFallback {
-    ;
+public class AspectFallback {
 
     /**
      * Derives aspects by inspecting the item's Java class hierarchy and, for blocks, the block's Material.
@@ -77,12 +76,13 @@ public enum AspectFallback {
      * 如果无法确定类型则返回 null，通知调用者尝试关键词兜底。
      * 所有要素查找都是 null 安全的：如果要素所属模组未加载，getAspect() 会返回 null。
      */
-    static AspectList deriveFromType(final ItemStack stack) {
+    static AspectList deriveFromType(ItemStack stack) {
         try {
             final Item item = stack.getItem();
             final AspectList al = new AspectList();
 
-            if (item instanceof final ItemBlock ib) {
+            if (item instanceof ItemBlock) {
+                final ItemBlock ib = (ItemBlock) item;
                 final Block b = ib.field_150939_a;
                 final Material m = b.getMaterial();
 
@@ -184,7 +184,7 @@ public enum AspectFallback {
                     if (null != vac) al.add(vac, 3);
                 }
 
-                if (0 < al.size()) return al;
+                return AspectUtils.hasPositiveAspectAmount(al) ? al : null;
             }
 
             if (item instanceof ItemArmor) {
@@ -199,9 +199,8 @@ public enum AspectFallback {
             if (!isTool) {
                 try {
                     isTool = 0 <= item.getHarvestLevel(stack, "pickaxe") || 0 <= item.getHarvestLevel(stack, "axe")
-                            || 0 <= item.getHarvestLevel(stack, "shovel");
-                } catch (final Exception ignored) {
-                }
+                        || 0 <= item.getHarvestLevel(stack, "shovel");
+                } catch (final Exception ignored) {}
             }
             if (isTool) {
                 final Aspect inst = AspectUtils.getAspect("instrumentum");
@@ -272,7 +271,7 @@ public enum AspectFallback {
             if (null != tut && 0 == al.getAmount(tut)) al.add(tut, 4);
         }
 
-        return 0 < al.size() ? al : null;
+        return AspectUtils.hasPositiveAspectAmount(al) ? al : null;
     }
 
     /**

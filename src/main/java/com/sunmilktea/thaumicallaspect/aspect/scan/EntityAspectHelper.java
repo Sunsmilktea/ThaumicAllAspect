@@ -12,6 +12,7 @@ import net.minecraft.entity.monster.IMob;
 import net.minecraft.entity.passive.EntityAnimal;
 import net.minecraft.entity.passive.EntityWaterMob;
 
+import com.sunmilktea.thaumicallaspect.aspect.derive.AspectUtils;
 import com.sunmilktea.thaumicallaspect.logging.ModFileLogger;
 
 import thaumcraft.api.aspects.Aspect;
@@ -58,8 +59,7 @@ import thaumcraft.api.aspects.AspectList;
  * 其真实战利品表，否则可能导致崩溃。覆盖了常见的原版生物原型。</li>
  * </ol>
  */
-public enum EntityAspectHelper {
-    ;
+public class EntityAspectHelper {
 
     private static final Set<String> FAILED_ENTITY_IDS = new TreeSet<String>();
 
@@ -140,7 +140,7 @@ public enum EntityAspectHelper {
             @SuppressWarnings("unchecked")
             final Class<? extends EntityLivingBase> superLivingClass = (Class<? extends EntityLivingBase>) superClass;
             final AspectList superAspects = EntityAspectHelper.getOrGenerateForEntity(superLivingClass, null);
-            if (null != superAspects && 0 < superAspects.size()) {
+            if (AspectUtils.hasPositiveAspectAmount(superAspects)) {
                 Aspect[] superAspArr = superAspects.getAspects();
                 if (null == superAspArr) superAspArr = new Aspect[0];
                 for (final Aspect aspect : superAspArr) {

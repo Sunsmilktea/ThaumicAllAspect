@@ -13,8 +13,7 @@ package com.sunmilktea.thaumicallaspect.aspect.scan;
  * methods</li>
  * </ul>
  */
-public enum ItemBlockAspectHelper {
-    ;
+public class ItemBlockAspectHelper {
 
     public static void scanAndAssignAspects() {
         AspectScanner.scanAndAssignAspects();

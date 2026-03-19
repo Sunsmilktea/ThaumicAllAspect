@@ -1,17 +1,19 @@
 plugins {
+    // GTNH 官方约定插件（必须，0.1.+ 会自动更新到最新兼容版）
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-// 版本号从 version.txt 读取，需手动修改后构建
-val versionFile = rootProject.file("version.txt")
-val versionStr = if (versionFile.exists()) versionFile.readText().trim() else "1.0.0"
-version = versionStr
-extra["modVersion"] = versionStr
+group = "com.sunmilktea.thaumicallaspect"           // 你的反向域名风格
+version = project.findProperty("modVersion")?.toString() ?: "1.0.0-dev"
+base.archivesName.set("ThaumicAllAspect")
 
-// Ensure mod logo image is packaged into the JAR root so Forge can load it via mcmod.info's logoFile.
-tasks.named<Jar>("jar") {
-    from("src/main/resources/logo.png") {
-        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-        rename { "logo.png" }
-    }
+// GTNH 必须的仓库（官方 nexus）
+repositories {
+    mavenCentral()
+    maven { url = uri("https://nexus.gtnewhorizons.com/repository/public/") }
+}
+
+// 编码统一 UTF-8
+tasks.withType<JavaCompile> {
+    options.encoding = "UTF-8"
 }

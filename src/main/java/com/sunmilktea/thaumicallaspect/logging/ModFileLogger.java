@@ -214,6 +214,9 @@ public final class ModFileLogger {
                 String key = entry.getKey();
                 AspectList al = entry.getValue();
                 if (al == null || al.size() == 0) continue;
+                // Normalize before writing: never persist 0/negative amounts to the cache file.
+                al = com.sunmilktea.thaumicallaspect.aspect.derive.AspectUtils.ensureMinOnePerAspect(al);
+                if (al == null || al.size() == 0) continue;
 
                 StringBuilder sb = new StringBuilder();
                 sb.append(key)

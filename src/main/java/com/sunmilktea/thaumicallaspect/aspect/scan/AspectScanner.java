@@ -102,8 +102,7 @@ import thaumcraft.api.crafting.InfusionRecipe;
  * 统计数据、记录失败项、将完整要素缓存导出到磁盘。</li>
  * </ol>
  */
-public enum AspectScanner {
-    ;
+public class AspectScanner {
 
     private static final File VERIFY_CONFIG = new File("config/ThaumicAllAspect", "verify.cfg");
 
@@ -283,8 +282,11 @@ public enum AspectScanner {
                         // （避免调用两次 getObjectAspects——hasAspect 中一次，缓存一次）。
                         if (ThaumcraftApi.exists(stack.getItem(), stack.getItemDamage())) {
                             final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
-                            if (null != existing && 0 < existing.size()) {
-                                AspectUtils.CACHE.put(AspectUtils.key(stack), existing.copy());
+                            if (AspectUtils.hasPositiveAspectAmount(existing)) {
+                                AspectUtils.CACHE.put(
+                                    AspectUtils.key(stack),
+                                    AspectUtils.ensureMinOnePerAspect(existing)
+                                        .copy());
                                 hasAny = true;
                                 AspectUtils.statAlreadyHad++;
                                 modSkip++;
@@ -295,7 +297,7 @@ public enum AspectScanner {
                         AspectUtils.lastDerivePath = "";
                         final AspectList aspects = AspectDeriver
                             .getOrGenerateAspectsFor(stack, 0, new HashSet<String>());
-                        if (null != aspects && 0 < aspects.size()) {
+                        if (AspectUtils.hasPositiveAspectAmount(aspects)) {
                             final String aspectStr = AspectUtils.aspectListToString(aspects);
                             String displayName;
                             try {
@@ -466,8 +468,11 @@ public enum AspectScanner {
                     // 重新检查：物品可能已在之前的轮次中被注册
                     if (ThaumcraftApi.exists(stack.getItem(), stack.getItemDamage())) {
                         final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
-                        if (null != existing && 0 < existing.size()) {
-                            AspectUtils.CACHE.put(AspectUtils.key(stack), existing.copy());
+                        if (AspectUtils.hasPositiveAspectAmount(existing)) {
+                            AspectUtils.CACHE.put(
+                                AspectUtils.key(stack),
+                                AspectUtils.ensureMinOnePerAspect(existing)
+                                    .copy());
                             passReg++;
                             AspectUtils.statAlreadyHad++;
                             AspectUtils.FAILED_IDS.remove(id);
@@ -477,7 +482,7 @@ public enum AspectScanner {
 
                     AspectUtils.lastDerivePath = "";
                     final AspectList aspects = AspectDeriver.getOrGenerateAspectsFor(stack, 0, new HashSet<String>());
-                    if (null != aspects && 0 < aspects.size()) {
+                    if (AspectUtils.hasPositiveAspectAmount(aspects)) {
                         final String aspectStr = AspectUtils.aspectListToString(aspects);
                         String displayName;
                         try {
@@ -617,7 +622,7 @@ public enum AspectScanner {
                         final ItemStack stack = new ItemStack(item, 1, meta);
                         if (AspectUtils.hasAspect(stack)) {
                             final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
-                            if (null != existing && 0 < existing.size()) {
+                            if (AspectUtils.hasPositiveAspectAmount(existing)) {
                                 AspectUtils.CACHE.put(AspectUtils.key(stack), existing.copy());
                             }
                             found = true;
@@ -659,7 +664,7 @@ public enum AspectScanner {
                 if (0 > atIdx) continue;
                 final String baseName = key.substring(0, atIdx);
                 final AspectList al = entry.getValue();
-                if (null == al || 0 == al.size()) continue;
+                if (!AspectUtils.hasPositiveAspectAmount(al)) continue;
                 final int score = AspectUtils.getAspectTotal(al);
 
                 final AspectList existing = bestByItem.get(baseName);
@@ -674,7 +679,7 @@ public enum AspectScanner {
             for (final Map.Entry<String, AspectList> entry : bestByItem.entrySet()) {
                 final String name = entry.getKey();
                 final AspectList donor = entry.getValue();
-                if (null == donor || 0 == donor.size()) continue;
+                if (!AspectUtils.hasPositiveAspectAmount(donor)) continue;
 
                 final Object itemObj = Item.itemRegistry.getObject(name);
                 if (!(itemObj instanceof Item)) continue;
@@ -1001,7 +1006,7 @@ public enum AspectScanner {
         }
         final ItemStack stack = new ItemStack(item, 1, meta);
         final AspectList fromApi = ThaumcraftApiHelper.getObjectAspects(stack);
-        final boolean apiHas = null != fromApi && 0 < fromApi.size();
+        final boolean apiHas = AspectUtils.hasPositiveAspectAmount(fromApi);
         final boolean existsInMap = ThaumcraftApi.exists(item, meta);
         final String cacheKey = AspectUtils.key(stack);
         final AspectList cached = AspectUtils.CACHE.get(cacheKey);
@@ -1069,8 +1074,11 @@ public enum AspectScanner {
                     aspects = AspectDeriver.getOrGenerateAspectsFor(rep, 0, new HashSet<>());
                 }
 
-                if (null != aspects && 0 < aspects.size()) {
-                    ThaumcraftApi.registerObjectTag(rep, aspects.copy());
+                if (AspectUtils.hasPositiveAspectAmount(aspects)) {
+                    ThaumcraftApi.registerObjectTag(
+                        rep,
+                        AspectUtils.ensureMinOnePerAspect(aspects)
+                            .copy());
                     assigned++;
                     ModFileLogger.scanSummary(
                         tr("[Fluid register]") + " fluid:" + name + " <- " + AspectUtils.aspectListToString(aspects));
@@ -1165,7 +1173,6 @@ public enum AspectScanner {
      */
     private static void buildCraftingRecipeIndex() {
         final long t1 = System.currentTimeMillis();
-        @SuppressWarnings("unchecked")
         final List<IRecipe> allRecipes = CraftingManager.getInstance()
             .getRecipeList();
         AspectUtils.RECIPE_INDEX = new HashMap<>();
@@ -1234,7 +1241,6 @@ public enum AspectScanner {
     private static void buildFurnaceIndex() {
         final long t2 = System.currentTimeMillis();
         AspectUtils.FURNACE_INDEX = new HashMap<>();
-        @SuppressWarnings("unchecked")
         final Map<ItemStack, ItemStack> smeltingMap = FurnaceRecipes.smelting()
             .getSmeltingList();
         if (null == smeltingMap) return;

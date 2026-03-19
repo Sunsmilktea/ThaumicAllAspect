@@ -33,8 +33,7 @@ import thaumcraft.api.crafting.ShapelessArcaneRecipe;
  * <p>
  * 要素推导核心逻辑。包含主调度器和所有基于配方/继承的推导方法。
  */
-public enum AspectDeriver {
-    ;
+public class AspectDeriver {
 
     /**
      * Main derivation dispatcher. Attempts to find or generate aspects for the given ItemStack
@@ -60,9 +59,10 @@ public enum AspectDeriver {
         // Check cache first / 先检查缓存
         if (AspectUtils.CACHE.containsKey(k)) {
             final AspectList cached = AspectUtils.CACHE.get(k);
-            if (null != cached && 0 < cached.size()) {
+            if (AspectUtils.hasPositiveAspectAmount(cached)) {
                 if (0 == depth) AspectUtils.lastDerivePath = tr("cache hit");
-                return cached.copy();
+                return AspectUtils.ensureMinOnePerAspect(cached)
+                    .copy();
             }
         }
 
@@ -78,8 +78,9 @@ public enum AspectDeriver {
             // 1. Already registered in Thaumcraft / 已在TC中注册
             if (ThaumcraftApi.exists(stack.getItem(), stack.getItemDamage())) {
                 final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
-                if (null != existing && 0 < existing.size()) {
-                    result = existing.copy();
+                if (AspectUtils.hasPositiveAspectAmount(existing)) {
+                    result = AspectUtils.ensureMinOnePerAspect(existing)
+                        .copy();
                     AspectUtils.CACHE.put(k, result.copy());
                     if (0 == depth) AspectUtils.lastDerivePath = tr("TC registered");
                     return result;
@@ -96,47 +97,47 @@ public enum AspectDeriver {
 
             // 3. OreDictionary equivalents / 矿物辞典等价物
             result = AspectDeriver.deriveFromOreDictionary(stack, depth + 1, visiting);
-            if (null != result && 0 < result.size()) {
+            if (AspectUtils.hasPositiveAspectAmount(result)) {
                 path = tr("OreDict equivalent");
             }
 
             // 4. Crafting recipes / 合成配方
-            if (null == result || 0 == result.size()) {
+            if (!AspectUtils.hasPositiveAspectAmount(result)) {
                 result = AspectDeriver.deriveFromRecipeIndex(stack, depth + 1, visiting);
-                if (null != result && 0 < result.size()) path = tr("crafting recipe");
+                if (AspectUtils.hasPositiveAspectAmount(result)) path = tr("crafting recipe");
             }
 
             // 5. Furnace recipes / 烧炼配方
-            if (null == result || 0 == result.size()) {
+            if (!AspectUtils.hasPositiveAspectAmount(result)) {
                 result = AspectDeriver.deriveFromFurnace(stack, depth + 1, visiting);
-                if (null != result && 0 < result.size()) path = tr("smelting recipe");
+                if (AspectUtils.hasPositiveAspectAmount(result)) path = tr("smelting recipe");
             }
 
             // 6. Thaumcraft recipes (arcane, infusion, crucible) / TC配方（奥术、注魔、坩埚）
-            if (null == result || 0 == result.size()) {
+            if (!AspectUtils.hasPositiveAspectAmount(result)) {
                 result = AspectDeriver.deriveFromTCRecipes(stack, depth + 1, visiting);
-                if (null != result && 0 < result.size()) path = tr("TC recipe");
+                if (AspectUtils.hasPositiveAspectAmount(result)) path = tr("TC recipe");
             }
 
             // 7. Same-item metadata inheritance (non-recursive) / 同物品meta继承（非递归）
-            if (null == result || 0 == result.size()) {
+            if (!AspectUtils.hasPositiveAspectAmount(result)) {
                 result = AspectDeriver.deriveFromSameItemMetas(stack, depth + 1, visiting);
-                if (null != result && 0 < result.size()) path = tr("same-item meta inheritance");
+                if (AspectUtils.hasPositiveAspectAmount(result)) path = tr("same-item meta inheritance");
             }
 
             // 8. TC internal tag generator with RECIPE_DECAY / TC内部生成器（RECIPE_DECAY 衰减）
-            if (null == result || 0 == result.size()) {
+            if (!AspectUtils.hasPositiveAspectAmount(result)) {
                 final AspectList tcGen = AspectUtils.generateWithThaumcraft(stack);
-                if (null != tcGen && 0 < tcGen.size()) {
+                if (AspectUtils.hasPositiveAspectAmount(tcGen)) {
                     result = AspectUtils.scaleAspects(tcGen, AspectUtils.RECIPE_DECAY);
                     path = tr("TC generator");
                 }
             }
 
             // 9. Type/material-based derivation with RECIPE_DECAY / 类型/材质推导（RECIPE_DECAY 衰减）
-            if (null == result || 0 == result.size()) {
+            if (!AspectUtils.hasPositiveAspectAmount(result)) {
                 final AspectList typeAsp = AspectFallback.deriveFromType(stack);
-                if (null != typeAsp && 0 < typeAsp.size()) {
+                if (AspectUtils.hasPositiveAspectAmount(typeAsp)) {
                     result = AspectUtils.scaleAspects(typeAsp, AspectUtils.RECIPE_DECAY);
                     path = tr("type derivation");
                 }
@@ -155,7 +156,7 @@ public enum AspectDeriver {
 
             // If top-level result only has a single aspect type, optionally enrich it with keyword fallback aspects.
             // 仅在顶层调用且结果只有 1 种要素时（且配置允许），使用关键词兜底补充更多要素种类（不覆盖原有要素）。
-            if (0 == depth && ThaumicAllAspect.enrichSingleAspect && null != result && 0 < result.size()) {
+            if (0 == depth && ThaumicAllAspect.enrichSingleAspect && AspectUtils.hasPositiveAspectAmount(result)) {
                 Aspect[] baseAspects = result.getAspects();
                 if (null == baseAspects) baseAspects = new Aspect[0];
                 int nonZeroKinds = 0;
@@ -164,9 +165,9 @@ public enum AspectDeriver {
                 }
                 if (1 >= nonZeroKinds) {
                     final AspectList fb = AspectFallback.createGeneralFallback(stack);
-                    if (null != fb && 0 < fb.size()) {
+                    if (AspectUtils.hasPositiveAspectAmount(fb)) {
                         final AspectList scaledFb = AspectUtils.scaleAspects(fb, AspectUtils.RECIPE_DECAY);
-                        final AspectList toMerge = null != scaledFb && 0 < scaledFb.size() ? scaledFb : fb;
+                        final AspectList toMerge = AspectUtils.hasPositiveAspectAmount(scaledFb) ? scaledFb : fb;
                         Aspect[] extraAspects = toMerge.getAspects();
                         if (null == extraAspects) extraAspects = new Aspect[0];
                         for (final Aspect a : extraAspects) {
@@ -179,7 +180,7 @@ public enum AspectDeriver {
                 }
             }
 
-            if (null != result && 0 < result.size()) {
+            if (AspectUtils.hasPositiveAspectAmount(result)) {
                 AspectUtils.CACHE.put(k, result.copy());
             }
 
@@ -261,19 +262,21 @@ public enum AspectDeriver {
             // 这是防止循环依赖和缓存污染的关键设计决策。
             if (AspectUtils.CACHE.containsKey(otherKey)) {
                 final AspectList cached = AspectUtils.CACHE.get(otherKey);
-                if (null != cached && 0 < cached.size()) {
-                    al = cached.copy();
+                if (AspectUtils.hasPositiveAspectAmount(cached)) {
+                    al = AspectUtils.ensureMinOnePerAspect(cached)
+                        .copy();
                 }
             }
 
             if (null == al && ThaumcraftApi.exists(otherStack.getItem(), otherMeta)) {
                 final AspectList existing = ThaumcraftApiHelper.getObjectAspects(otherStack);
-                if (null != existing && 0 < existing.size()) {
-                    al = existing.copy();
+                if (AspectUtils.hasPositiveAspectAmount(existing)) {
+                    al = AspectUtils.ensureMinOnePerAspect(existing)
+                        .copy();
                 }
             }
 
-            if (null != al && 0 < al.size()) {
+            if (AspectUtils.hasPositiveAspectAmount(al)) {
                 final int score = AspectUtils.getAspectTotal(al);
                 if (score > bestScore) {
                     bestScore = score;
@@ -339,7 +342,7 @@ public enum AspectDeriver {
 
             if (!others.isEmpty()) {
                 final AspectList al = AspectUtils.getBestFromSlot(others, depth, visiting);
-                if (null != al && 0 < al.size()) return al.copy();
+                if (AspectUtils.hasPositiveAspectAmount(al)) return al.copy();
             }
         }
 
@@ -382,13 +385,13 @@ public enum AspectDeriver {
                 // 每个槽位可能有多个替代品（矿辞替换）；
                 // getBestFromSlot 选择要素分最高的替代品。
                 final AspectList slotAsp = AspectUtils.getBestFromSlot(slot, depth, visiting);
-                if (null != slotAsp && 0 < slotAsp.size()) {
+                if (AspectUtils.hasPositiveAspectAmount(slotAsp)) {
                     hasInput = true;
                     combined.add(slotAsp);
                 }
             }
 
-            if (hasInput && 0 < combined.size()) {
+            if (hasInput && AspectUtils.hasPositiveAspectAmount(combined)) {
                 // Scale combined ingredients by RECIPE_DECAY (90% decay, min 1 per aspect).
                 // This prevents crafted items from having more aspects than raw materials combined.
                 // 按 RECIPE_DECAY（衰减 90%，每种要素至少 1）缩放合并后的材料要素。
@@ -433,7 +436,7 @@ public enum AspectDeriver {
             // Derive from input and apply RECIPE_DECAY; return immediately on first match.
             // 从输入推导并施加 RECIPE_DECAY；首次匹配即返回。
             final AspectList inputAsp = AspectDeriver.getOrGenerateAspectsFor(input, depth, visiting);
-            if (null != inputAsp && 0 < inputAsp.size()) {
+            if (AspectUtils.hasPositiveAspectAmount(inputAsp)) {
                 return AspectUtils.scaleAspects(inputAsp, AspectUtils.RECIPE_DECAY);
             }
         }
@@ -540,13 +543,13 @@ public enum AspectDeriver {
             boolean hasInput = false;
             for (final List<ItemStack> slot : inputs) {
                 final AspectList slotAsp = AspectUtils.getBestFromSlot(slot, depth, visiting);
-                if (null != slotAsp && 0 < slotAsp.size()) {
+                if (AspectUtils.hasPositiveAspectAmount(slotAsp)) {
                     hasInput = true;
                     combined.add(slotAsp);
                 }
             }
 
-            if (hasInput && 0 < combined.size()) {
+            if (hasInput && AspectUtils.hasPositiveAspectAmount(combined)) {
                 final AspectList scaled = AspectUtils.scaleAspects(combined, AspectUtils.RECIPE_DECAY);
                 final int score = AspectUtils.getAspectTotal(scaled);
                 if (score > bestScore) {
@@ -609,7 +612,7 @@ public enum AspectDeriver {
                     for (final ItemStack ore : ores) {
                         if (null == ore || null == ore.getItem()) continue;
                         final AspectList srcAsp = AspectDeriver.getOrGenerateAspectsFor(ore, 0, new HashSet<>());
-                        if (null != srcAsp && 0 < srcAsp.size()) {
+                        if (AspectUtils.hasPositiveAspectAmount(srcAsp)) {
                             final AspectList result = srcAsp.copy();
                             // Add ignis (fire/heat from the melting process) and aqua (liquid state).
                             // These represent the physical transformation from solid to molten fluid.

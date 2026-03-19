@@ -67,8 +67,7 @@ import thaumcraft.api.aspects.AspectList;
  * <li>铁路 (Railcraft) — 轧制机、高炉、碎石机、焦炉</li>
  * </ul>
  */
-public enum ModRecipeBridge {
-    ;
+public class ModRecipeBridge {
 
     /**
      * Total items registered by all mod recipe bridges in a single scan.
@@ -2016,7 +2015,7 @@ public enum ModRecipeBridge {
         for (final ItemStack input : inputs) {
             if (null == input || null == input.getItem()) continue;
             final AspectList asp = AspectDeriver.getOrGenerateAspectsFor(input, 0, new HashSet<>());
-            if (null != asp && 0 < asp.size()) {
+            if (AspectUtils.hasPositiveAspectAmount(asp)) {
                 combined.add(asp);
                 hasAny = true;
             }
@@ -2029,7 +2028,7 @@ public enum ModRecipeBridge {
         AspectList result = derived.copy();
         if (AspectUtils.hasAspect(output)) {
             final AspectList existing = ThaumcraftApiHelper.getObjectAspects(output);
-            if (null != existing && 0 < existing.size()) {
+            if (AspectUtils.hasPositiveAspectAmount(existing)) {
                 result = AspectUtils.mergeAspectsMax(existing, derived);
             }
         }

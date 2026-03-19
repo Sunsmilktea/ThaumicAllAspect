@@ -30,8 +30,7 @@ import thaumcraft.api.crafting.ShapelessArcaneRecipe;
  * 配方优先管线：按配方迭代（不按物品），当所有输入均有源质时赋 output 源质；
  * 记录「第一次 input 为空」的 output 下一轮再算；最多 6 轮。
  */
-public enum RecipeFirstAspectPipeline {
-    ;
+public class RecipeFirstAspectPipeline {
 
     /** Max rounds for recipe-first propagation, configurable via thaumicallaspect.cfg (default 6). */
     private static int maxRounds = 6;
@@ -83,7 +82,7 @@ public enum RecipeFirstAspectPipeline {
                 boolean allHaveAspect = true;
                 for (final List<ItemStack> slot : rec.inputs) {
                     final AspectList slotAsp = AspectUtils.getBestFromSlotExistingOnly(slot);
-                    if (null != slotAsp && 0 < slotAsp.size()) {
+                    if (AspectUtils.hasPositiveAspectAmount(slotAsp)) {
                         combined.add(slotAsp);
                     } else {
                         allHaveAspect = false;

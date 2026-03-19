@@ -47,8 +47,7 @@ import thaumcraft.api.aspects.AspectList;
  * Shared state (caches, indexes) and utility methods used across the aspect scanning system.
  * 要素扫描系统中使用的共享状态（缓存、索引）和工具方法。
  */
-public enum AspectUtils {
-    ;
+public class AspectUtils {
 
     /**
      * Maximum recursion depth for recipe-based aspect derivation.
@@ -260,7 +259,7 @@ public enum AspectUtils {
     public static boolean hasAspect(final ItemStack stack) {
         if (!ThaumcraftApi.exists(stack.getItem(), stack.getItemDamage())) return false;
         final AspectList al = ThaumcraftApiHelper.getObjectAspects(stack);
-        return null != al && 0 < al.size();
+        return AspectUtils.hasPositiveAspectAmount(al);
     }
 
     /**
@@ -274,13 +273,23 @@ public enum AspectUtils {
         final String k = AspectUtils.key(normalized);
         if (AspectUtils.CACHE.containsKey(k)) {
             final AspectList c = AspectUtils.CACHE.get(k);
-            if (null != c && 0 < c.size()) return c.copy();
+            if (AspectUtils.hasPositiveAspectAmount(c)) return AspectUtils.ensureMinOnePerAspect(c)
+                .copy();
         }
         if (ThaumcraftApi.exists(normalized.getItem(), normalized.getItemDamage())) {
             final AspectList al = ThaumcraftApiHelper.getObjectAspects(normalized);
-            if (null != al && 0 < al.size()) return al.copy();
+            if (AspectUtils.hasPositiveAspectAmount(al)) return AspectUtils.ensureMinOnePerAspect(al)
+                .copy();
         }
         return null;
+    }
+
+    /**
+     * Returns true only when AspectList has a strictly positive total amount.
+     * This treats lists like "metallum=0, potentia=0" as effectively empty.
+     */
+    public static boolean hasPositiveAspectAmount(final AspectList al) {
+        return null != al && 0 < al.size() && 0 < AspectUtils.getAspectTotal(al);
     }
 
     /**
@@ -421,7 +430,7 @@ public enum AspectUtils {
                 out.add(asp, Math.max(amtA, amtB));
             }
         }
-        return 0 < out.size() ? out : null;
+        return hasPositiveAspectAmount(out) ? out : null;
     }
 
     /**
@@ -448,7 +457,7 @@ public enum AspectUtils {
         for (final ItemStack opt : options) {
             if (null == opt) continue;
             final AspectList cur = AspectDeriver.getOrGenerateAspectsFor(opt, depth, visiting);
-            if (null == cur || 0 == cur.size()) continue;
+            if (!hasPositiveAspectAmount(cur)) continue;
 
             final int score = AspectUtils.getAspectTotal(cur);
             if (score > bestScore) {
@@ -656,7 +665,7 @@ public enum AspectUtils {
     public static AspectList generateWithThaumcraft(final ItemStack stack) {
         try {
             final AspectList al = ThaumcraftApiHelper.generateTags(stack.getItem(), stack.getItemDamage());
-            if (null != al && 0 < al.size()) {
+            if (hasPositiveAspectAmount(al)) {
                 return al.copy();
             }
         } catch (final Exception ignored) {}
@@ -692,20 +701,24 @@ public enum AspectUtils {
 
         // 1. Standard recipe types (known class structure, no reflection needed)
         // 标准配方类型（已知类结构，不需要反射）
-        if (recipe instanceof final ShapedRecipes sr) {
+        if (recipe instanceof ShapedRecipes) {
+            final ShapedRecipes sr = (ShapedRecipes) recipe;
             for (final ItemStack s : sr.recipeItems) {
                 if (null != s) inputs.add(Collections.singletonList(s.copy()));
             }
-        } else if (recipe instanceof final ShapedOreRecipe sor) {
+        } else if (recipe instanceof ShapedOreRecipe) {
+            final ShapedOreRecipe sor = (ShapedOreRecipe) recipe;
             for (final Object o : sor.getInput()) {
                 inputs.add(AspectUtils.resolveOreInput(o));
             }
-        } else if (recipe instanceof final ShapelessRecipes slr) {
-            @SuppressWarnings("unchecked") final List<ItemStack> items = slr.recipeItems;
+        } else if (recipe instanceof ShapelessRecipes) {
+            final ShapelessRecipes slr = (ShapelessRecipes) recipe;
+            final List<ItemStack> items = slr.recipeItems;
             for (final ItemStack s : items) {
                 if (null != s) inputs.add(Collections.singletonList(s.copy()));
             }
-        } else if (recipe instanceof final ShapelessOreRecipe sor) {
+        } else if (recipe instanceof ShapelessOreRecipe) {
+            final ShapelessOreRecipe sor = (ShapelessOreRecipe) recipe;
             for (final Object o : sor.getInput()) {
                 inputs.add(AspectUtils.resolveOreInput(o));
             }
@@ -801,16 +814,19 @@ public enum AspectUtils {
      * 忽略单个 ItemStack 值（可能是配方输出而非输入）。
      */
     private static void collectInputsFromObject(final Object obj, final List<List<ItemStack>> inputs) {
-        if (obj instanceof final ItemStack[] arr) {
+        if (obj instanceof ItemStack[]) {
+            final ItemStack[] arr = (ItemStack[]) obj;
             for (final ItemStack s : arr) {
                 if (null != s) inputs.add(Collections.singletonList(s.copy()));
             }
-        } else if (obj instanceof final Object[] arr) {
+        } else if (obj instanceof Object[]) {
+            final Object[] arr = (Object[]) obj;
             for (final Object o : arr) {
                 final List<ItemStack> resolved = AspectUtils.resolveOreInput(o);
                 if (!resolved.isEmpty()) inputs.add(resolved);
             }
-        } else if (obj instanceof final List<?> list) {
+        } else if (obj instanceof List<?>) {
+            final List<?> list = (List<?>) obj;
             if (list.isEmpty()) return;
             for (final Object o : list) {
                 final List<ItemStack> resolved = AspectUtils.resolveOreInput(o);

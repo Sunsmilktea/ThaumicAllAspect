@@ -30,8 +30,7 @@ import codechicken.nei.recipe.TemplateRecipeHandler;
  * 从 GTNH NEI 的 TemplateRecipeHandler 中读取配方，填充 RECIPE_INDEX / FURNACE_INDEX，
  * 供配方优先 8 轮管线使用。
  */
-public enum NEIRecipeAdapter {
-    ;
+public class NEIRecipeAdapter {
 
     /**
      * Fills AspectUtils.RECIPE_INDEX and FURNACE_INDEX from NEI.
