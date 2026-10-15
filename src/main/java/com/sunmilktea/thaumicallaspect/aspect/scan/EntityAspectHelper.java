@@ -107,7 +107,7 @@ public class EntityAspectHelper {
 
         // Non-monster living entities always get bestia >= 4
         if (!IMob.class.isAssignableFrom(entityClass)) {
-            final Aspect bestia = Aspect.getAspect("bestia");
+            final Aspect bestia = AspectUtils.getAspect("bestia");
             if (null != bestia) {
                 aspects.add(bestia, 4);
             }
@@ -146,7 +146,7 @@ public class EntityAspectHelper {
                 for (final Aspect aspect : superAspArr) {
                     if (null != aspect) {
                         final int amount = superAspects.getAmount(aspect);
-                        final int scaledAmount = Math.max(1, Math.round(amount * 0.1f));
+                        final int scaledAmount = Math.max(1, Math.round(amount * AspectUtils.RECIPE_DECAY));
                         aspects.add(aspect, scaledAmount);
                     }
                 }
@@ -190,30 +190,30 @@ public class EntityAspectHelper {
     private static void addAspectsByType(final Class<? extends EntityLivingBase> entityClass,
         final AspectList aspects) {
         if (EntityWaterMob.class.isAssignableFrom(entityClass)) {
-            final Aspect water = Aspect.getAspect("aqua");
+            final Aspect water = AspectUtils.getAspect("aqua");
             if (null != water && 2 > aspects.getAmount(water)) {
                 aspects.add(water, 2);
             }
         } else if (EntityAnimal.class.isAssignableFrom(entityClass)) {
-            final Aspect earth = Aspect.getAspect("terra");
+            final Aspect earth = AspectUtils.getAspect("terra");
             if (null != earth && 2 > aspects.getAmount(earth)) {
                 aspects.add(earth, 2);
             }
         } else if (IBossDisplayData.class.isAssignableFrom(entityClass)) {
-            final Aspect power = Aspect.getAspect("potentia");
+            final Aspect power = AspectUtils.getAspect("potentia");
             if (null != power && 4 > aspects.getAmount(power)) {
                 aspects.add(power, 4);
             }
-            final Aspect chaos = Aspect.getAspect("perditio");
+            final Aspect chaos = AspectUtils.getAspect("perditio");
             if (null != chaos && 2 > aspects.getAmount(chaos)) {
                 aspects.add(chaos, 2);
             }
         } else if (IMob.class.isAssignableFrom(entityClass)) {
-            final Aspect chaos = Aspect.getAspect("perditio");
+            final Aspect chaos = AspectUtils.getAspect("perditio");
             if (null != chaos && 3 > aspects.getAmount(chaos)) {
                 aspects.add(chaos, 3);
             }
-            final Aspect death = Aspect.getAspect("mortuus");
+            final Aspect death = AspectUtils.getAspect("mortuus");
             if (null != death && 2 > aspects.getAmount(death)) {
                 aspects.add(death, 2);
             }
@@ -252,17 +252,17 @@ public class EntityAspectHelper {
         if (className.contains("cow") || className.contains("sheep")
             || className.contains("pig")
             || className.contains("chicken")) {
-            final Aspect food = Aspect.getAspect("fames");
+            final Aspect food = AspectUtils.getAspect("fames");
             if (null != food && 2 > aspects.getAmount(food)) {
                 aspects.add(food, 2);
             }
         } else if (className.contains("skeleton") || className.contains("zombie")) {
-            final Aspect death = Aspect.getAspect("mortuus");
+            final Aspect death = AspectUtils.getAspect("mortuus");
             if (null != death && 3 > aspects.getAmount(death)) {
                 aspects.add(death, 3);
             }
         } else if (className.contains("spider") || className.contains("creeper")) {
-            final Aspect poison = Aspect.getAspect("venenum");
+            final Aspect poison = AspectUtils.getAspect("venenum");
             if (null != poison && 2 > aspects.getAmount(poison)) {
                 aspects.add(poison, 2);
             }

@@ -1,144 +1,109 @@
-# Thaumic All Aspect
+# Example Forge Mod for Minecraft 1.7.10
 
-面向 **Minecraft 1.7.10 / Thaumcraft 4** 的附属模组，用于**自动为缺少研究要素的内容补全要素**，尽量保持平衡与原版风格。
+[![](https://jitpack.io/v/GTNewHorizons/ExampleMod1.7.10.svg)](https://jitpack.io/#GTNewHorizons/ExampleMod1.7.10)
+[![](https://github.com/GTNewHorizons/ExampleMod1.7.10/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/GTNewHorizons/ExampleMod1.7.10/actions/workflows/build-and-test.yml)
 
----
+An example mod for Minecraft 1.7.10 with Forge focussed on a stable, updatable setup.
 
-## 功能简介
+<!-- omit in toc -->
+### Table of Contents
 
-- **物品 / 方块 / 流体自动补全要素**
-  - 优先从 **NEI 中可见的合成 / 熔炼配方** 汇总原料要素（本模组作为 NEI 附属使用，前提是装有 NEI+TC4+Baubles）；
-  - 在无 NEI 或 NEI 适配失败时，回退到原版 `CraftingManager` / `FurnaceRecipes` / Thaumcraft 配方索引；
-  - 若无合成表，则按**方块 / 物品类型（继承关系）**分配要素；
-  - 要素数量默认**衰减 90%**（至少保留 1 点），避免过于泛滥。
+* [Example Forge Mod for Minecraft 1.7.10](#example-forge-mod-for-minecraft-1710)
+    * [Motivation](#motivation)
+    * [Help! I'm stuck!](#help-im-stuck)
+    * [Getting started](#getting-started)
+    * [Features](#features)
+    * [Files](#files)
+    * [Forge's Access Transformers](#forges-access-transformers)
+    * [Mixins](#mixins)
+    * [Advanced](#advanced)
+    * [Feedback wanted](#feedback-wanted)
 
-- **生物要素自动补全**
-  - 依据**实体继承关系、种类、掉落物**等信息分配；
-  - **怪物**不额外添加野兽（`BEASTIA`）要素；
-  - **普通生物**（非怪物）固定额外获得 **4 点野兽**要素；
-  - 整体同样遵循**衰减 90%**的规则。
 
-- **非侵入式设计**
-  - **只处理“当前没有任何要素”的目标**；
-  - 不会覆盖其它模组 / 脚本已经注册过的要素；
-  - 适合作为整合包里的“兜底补全”方案。
+### Motivation
 
----
+We had our fair share in struggles with build scripts for Minecraft Forge. There are quite a few pitfalls from non-obvious error messages. This Example Project provides you a build system you can adapt to over 90% of Minecraft Forge mods and can easily be updated if need be.
 
-## 环境与依赖
+### Help! I'm stuck!
 
-- **Minecraft**：1.7.10  
-- **Forge**：推荐 10.13.4.1614+  
-- **Thaumcraft**：4.2.3.5+
+We all have been there! Check out our [FAQ](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/docs/FAQ.md). If that doesn't help, please open an issue.
 
-如用于整合包，请确保上述依赖版本满足或高于推荐版本。
+### Getting started
 
----
+> [!WARNING]
+> Do not clone or fork this repository when creating a new mod. It contains files that are specific to this example project and are not part of the mod template. Use the [project starter](https://github.com/GTNewHorizons/ExampleMod1.7.10/releases/download/master-packages/starter.zip) instead.
 
-## 安装方式
+Creating mod from scratch:
+1. Unzip [project starter](https://github.com/GTNewHorizons/ExampleMod1.7.10/releases/download/master-packages/starter.zip) into project directory.
+2. Replace placeholders in LICENSE-template and rename it to LICENSE, or remove LICENSE-template and put any other license you like on your code. This is an permissive OSS project and we encourage you participate in OSS movement by having permissive license like one in template. You can find out pros and cons of OSS software in [this article](https://www.freecodecamp.org/news/what-is-great-about-developing-open-source-and-what-is-not/)
+3. Ensure your project is under VCS. For example initialise git repository by running `git init; git commit --message "initialized repository"`.
+4. Replace placeholders (edit values in gradle.properties, change example package and class names, etc.)
+5. Run `./gradlew setupDecompWorkspace`
+6. Run `./gradlew build`
+6. Make sure to check out the rest sections of this file.
+7. You are good to go!
 
-1. 从 Release / 构建产物中获取 `ThaumicAllAspect-xxx.jar`；
-2. 将 Jar 文件放入整合包 / 客户端 / 服务器的 `mods/` 目录；
-3. 确保已安装对应版本的 Forge 与 Thaumcraft 4；
-4. 启动游戏后，在 `Mods` 列表中确认本模组已加载。
+We also have described guidelines for existing mod [migration](docs/migration.md) and [porting](docs/porting.md)
 
----
+### Features
 
-## 开发与构建
+ - Updatable: Replace [`build.gradle`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/build.gradle) with a newer version
+ - Optional API artifact (.jar)
+ - Optional version replacement in Java files
+ - Optional shadowing of dependencies
+ - Simplified setup of Mixin and example
+ - Scala support (add sources under `src/main/scala/` instead of `src/main/java/`)
+ - Optional named developer account for consistent player progression during testing
+ - Boilerplate forge mod as starting point
+ - Improved warnings for pitfalls
+ - Git Tags integration for versioning
+ - [Jitpack](https://jitpack.io) CI
+ - GitHub CI:
+   - Releasing your artifacts on new tags pushed. Push git tag named after version (e.g. 1.0.0) which will trigger a release of artifacts with according names.
+   - Running smoke test for server startup. On any server crash occurring workflow will fail and print the crash log.
 
-本项目使用 **Gradle** 构建，仓库自带 `gradlew` 脚本。
+### Files
+ - [`build.gradle`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/build.gradle): This is the core script of the build process. You should not need to tamper with it, unless you are trying to accomplish something out of the ordinary. __Do not touch this file! You will make a future update near impossible if you do so!__
+ - [`gradle.properties`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/gradle.properties): The core configuration file. It includes
+ - [`dependencies.gradle[.kts]`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/dependencies.gradle): Add your mod's dependencies in this file. This is separate from the main build script, so you may replace the [`build.gradle`](https://github.com/SinTh0r4s/ExampleMod1.7.10/blob/main/build.gradle) if an update is available.
+ - [`repositories.gradle[.kts]`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/repositories.gradle): Add your dependencies' repositories. This is separate from the main build script, so you may replace the [`build.gradle`](https://github.com/SinTh0r4s/ExampleMod1.7.10/blob/main/build.gradle) if an update is available.
+ - `addon.gradle[.kts]`: Any additional build logic. This is separate from the main build script, so you may replace the [`build.gradle`](https://github.com/SinTh0r4s/ExampleMod1.7.10/blob/main/build.gradle) if an update is available. See [Advanced](#advanced) for more details.
+ - [`jitpack.yml`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/jitpack.yml): Ensures that your mod is available as import over [Jitpack](https://jitpack.io).
+ - [`.github/workflows/gradle.yml`](https://github.com/GTNewHorizons/ExampleMod1.7.10/blob/main/.github/workflows/gradle.yml): A simple CI script that will build your mod any time it is pushed to `master` or `main` and publish the result as release in your repository. This feature is free with GitHub if your repository is public.
 
-### 本地构建
+### Forge's Access Transformers
 
-在项目根目录执行：
+You may activate Forge's Access Transformers by defining a configuration file in `gradle.properties`.
 
-```bash
-./gradlew build
-```
+Check out the [`example-access-transformers`](https://github.com/GTNewHorizons/ExampleMod1.7.10/tree/example-access-transformers) branch for a working example!
 
-构建完成后，产物位于：
+> [!WARNING]
+> Access Transformers are bugged and will deny you any sources for the decompiled Minecraft! Your development environment will still work, but you might face some inconveniences. For example, IntelliJ will not permit searches in dependencies without attached sources.
 
-- `build/libs/` 目录下的 Jar 文件。
+### Mixins
 
-### Windows 用户
+[Mixins](https://github.com/SpongePowered/Mixin) are used to modify vanilla or mod/library code during runtime without having to edit, recompile, and redistribute the original code. For example, mixins can change a hardcoded value, redirect a method call, inject additional code, access private fields/methods, make a class implement your interface, and more. Mixins are an advanced feature which most normal mods will not require.
 
-```bash
-gradlew.bat build
-```
+Documentation about Mixin features can be found here: [Mixin Wiki](https://github.com/SpongePowered/Mixin/wiki) and [MixinExtras Wiki](https://github.com/LlamaLad7/MixinExtras/wiki)
 
-如遇到 Gradle 下载缓慢，可自行配置国内镜像源。
+There are many examples of mixins in these mods: [Hodgepodge](https://github.com/GTNewHorizons/Hodgepodge) and [Angelica](https://github.com/GTNewHorizons/Angelica)
 
----
+To enable Mixins in your project, follow one of the example commits:
+- use [normal mixins](https://github.com/GTNewHorizons/ExampleMod1.7.10/commit/beba55615fa8337b7639f0d5b18db6cc8d4826be) for basic and quick registration
+- use [GTNH IMixins](https://github.com/GTNewHorizons/ExampleMod1.7.10/commit/055cd4f18765a421a86c706f53b62116988297e3) (recommended) for the same thing as below, but in a less verbose and more unified manner using the IMixins api
+- use [GTNH Early/Late mixins](https://github.com/GTNewHorizons/ExampleMod1.7.10/commit/c4df59d92164775b69451f3e690239e93d1fc979) to have full control over the registration logic and check for presence of other mods during runtime to load your mixins
 
-## 运行时行为与配置
+The extra required dependencies are handled automatically after mixins are enabled.
 
-### 配方优先多轮推导（Recipe-first pipeline）
+### Advanced
 
-- 启动时会先构建配方索引（原版 / 熔炉 / TC 索引先建，NEI 再**合并追加**），然后运行若干轮“配方优先”推导管线（默认最多 6 轮，可在配置中调整）：
-  - 第 1 轮：对所有配方，当 **所有输入已有要素** 时，为输出赋值（输入之和 × `recipeDecay`）；
-  - 若某配方有任一输入无要素，则将该输出记入“待重算集合”，留给下一轮；
-  - 后续轮次仅对待重算集合对应的配方重试，直到没有新产物或达到配置中的最大轮数。
-- 这样能正确处理诸如 `A+B=C`、`A=B`（仅 A 有 3 点要素）的情况，最终得到：`B → 3`、`C → 6`。对于一些链条特别长的大包，可以通过配置放宽最大轮数。
+If your project requires custom gradle commands you may add a `addon.gradle[.kts]` to your project. It will be added automatically to the build script. Although we recommend against it, it is sometimes required. When in doubt, feel free to ask us about it. You may break future updates of this build system!
+If you need access to properties modified later in the buildscript, you can also use a `addon.late.gradle[.kts]`.
+For local tweaks that you don't want to commit to Git, like adding extra JVM arguments for testing, use `addon[.late].local.gradle[.kts]`.
 
-### 关键修复：避免“0 要素/假要素”
-- 修复了从 TC 或缓存读取时出现的异常：当 `AspectList` 的 `size > 0` 但所有要素总量 `total == 0` 时，之前可能会被误判为“已有要素”，从而跳过重推导，导致 HUD/机器读数出现 `=0`（甚至引发炉子/机器崩溃）。
-- 现在统一把“总量为 0 的 AspectList”视为“无要素”，强制走推导/兜底；并在写入 TC、缓存文件以及日志前，保证每个要素的数量至少为 1。
-- 针对带“粒/小件”类命中词（如 `nugget/粒/dust/shard`）且所有要素恰好为 1 的物品，增加 UI 可见性增强：自动把要素数量整体从 1 扩大到 2（不改变要素类型集合）。
+### Feedback wanted
 
-### 配置缓存与增量扫描
+If you tried out this build script we would love to head your opinion! Is there any feature missing for you? Did something not work? Please open an issue and we will try to resolve it asap!
 
-- 扫描结果会写入 `config/ThaumicAllAspect/aspect-cache.cfg`：
-  - **存在缓存文件时**：先加载缓存作为**初始要素种子**，随后仍会执行完整扫描（含 6 轮配方推导与兜底），只为**尚无要素**的物品补全，**不会覆盖**已有要素；结束后写回更新后的缓存。
-  - **删除缓存文件时**：下次启动从零执行完整扫描（含 6 轮配方推导与兜底），并生成新缓存。
-- 整合包作者推荐做法：
-  - 在开发环境中跑一遍完整扫描，生成 `aspect-cache.cfg`；
-  - 可将此文件随整合包分发；玩家每次启动仍会基于缓存做一轮增量补全，适配新增模组或配方。
-
-### 可调参数与高级选项
-
-- `config/ThaumicAllAspect/thaumicallaspect.cfg` 中提供了一些可调节的性能 / 精度开关：
-  - `recipeDecay`：全局推导衰减系数（默认 0.1），越低代表每层配方继承的要素越少；  
-  - `maxRecipeDepth`：配方推导时允许的最大递归深度（默认 10），用于防止配方相互引用导致死循环；
-  - `recipeFirstMaxRounds`：配方优先管线的最大轮数（默认 6），可以根据整合包规模调高或调低；
-  - 其余如日志详细程度、是否跳过部分诊断输出等，也都可以在该 cfg 中调整。
-
-### 兜底与可配置行为
-
-- 关键词兜底（按语言分组：中 / 英 / 俄 / 日 / 韩 / 德 / 法 / 西）；
-- 关键字兜底配置：`config/ThaumicAllAspect/keyword-fallback.cfg`；
-- 单物品 / 方块 / 流体兜底配置：`config/ThaumicAllAspect/item-fallback.cfg`；
-- 所有配置文件统一放在 `config/ThaumicAllAspect/` 目录下，避免散落。
-
----
-
-## 计划与状态
-
-当前为 **早期版本 / 移植整理中**，后续可能的方向包括（但不限于）：
-
-- 增加更多可配置项（例如衰减倍率、黑名单 / 白名单等）；  
-- 与脚本系统（如 Minetweaker/Modtweaker）更好协作；  
-- 提供更详细的调试 / 日志输出，便于整合包作者微调平衡。
-
----
-
-## 反馈与贡献
-
-- 如果在使用过程中遇到崩溃或要素分配异常，欢迎通过 GitHub Issues 反馈：  
-  请附上 **日志、崩溃报告、模组列表** 等信息；  
-- 欢迎提交 PR 修复 Bug 或改进代码 / 文档。
-
----
-
-## 许可 License
-
-本模组以 **GNU LGPL v3** 协议发布：
-
-- 你可以在整合包中自由使用和分发本模组；  
-- 你可以修改并发布修改版，但对本模组源码的修改部分需要在 LGPL v3 兼容的条件下开放源代码；  
-- 在此基础上，你的整合包或依赖本模组的其他模组可以采用任意协议（包括闭源 / 商业），只要不把本模组的 LGPL 代码直接并入闭源部分。
-
-The mod is licensed under **GNU LGPL v3**:
-
-- You are free to use and distribute it in modpacks.  
-- You may modify and redistribute it, as long as your modifications to this library remain under LGPL‑compatible terms and the corresponding source is available.  
-- Your own modpack or other mods can use any license (including proprietary), as long as they do not directly absorb LGPL‑licensed code into closed‑source components.
+Happy modding,\
+[SinTh0r4s](https://github.com/SinTh0r4s), [TheElan](https://github.com/TheElan) and [basdxz](https://github.com/basdxz)

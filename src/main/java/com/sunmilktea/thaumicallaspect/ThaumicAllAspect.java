@@ -21,6 +21,7 @@ import cpw.mods.fml.common.Mod.EventHandler;
 import cpw.mods.fml.common.event.FMLLoadCompleteEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import thaumcraft.api.ThaumcraftApi;
+import thaumcraft.api.ThaumcraftApi.EntityTags;
 import thaumcraft.api.aspects.AspectList;
 
 /**
@@ -170,6 +171,20 @@ public class ThaumicAllAspect {
             if (id == null || cls == null || !EntityLivingBase.class.isAssignableFrom(cls)) {
                 continue;
             }
+
+            boolean alreadyHasAspects = false;
+            for (EntityTags tag : ThaumcraftApi.scanEntities) {
+                if (id.equals(tag.entityName)) {
+                    if (tag.aspects != null && tag.aspects.size() > 0) {
+                        alreadyHasAspects = true;
+                        break;
+                    }
+                }
+            }
+            if (alreadyHasAspects) {
+                continue;
+            }
+
             @SuppressWarnings("unchecked")
             Class<? extends EntityLivingBase> livingClass = (Class<? extends EntityLivingBase>) cls;
             AspectList aspects = EntityAspectHelper.getOrGenerateForEntity(livingClass, id);

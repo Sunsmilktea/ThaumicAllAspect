@@ -82,24 +82,11 @@ public class AspectUtils {
      */
     private static final Map<String, Aspect> ASPECT_MAP = new HashMap<>();
 
-    // --- Pre-built indexes: built once at scan start for O(1) lookup by output Item ---
-    // --- 预构建索引：扫描开始时一次性构建，按输出物品 O(1) 查找 ---
-    /**
-     * Collects all metadata values that should be scanned for a given Item.
-     * Uses four complementary sources to ensure no valid sub-item is missed,
-     * especially important for GregTech/JAOPCA items with many meta variants.
-     * Always includes meta 0 as a baseline.
-     * <p>
-     * 收集给定 Item 需要扫描的所有 meta 值。
-     * 使用四个互补来源确保不遗漏任何有效子物品，
-     * 对于 GregTech/JAOPCA 等拥有大量 meta 变体的物品尤为重要。
-     * 始终包含 meta 0 作为基线。
-     *
-     * @param item the Item to discover metas for / 要发现 meta 值的 Item
-     * @return ordered set of metadata values to scan / 要扫描的 meta 值有序集合
-     */
     private static final Class<?>[] GET_SUB_ITEMS_PARAMS = new Class<?>[] { Item.class, CreativeTabs.class,
         List.class };
+
+    // --- Pre-built indexes: built once at scan start for O(1) lookup by output Item ---
+    // --- 预构建索引：扫描开始时一次性构建，按输出物品 O(1) 查找 ---
     /**
      * Decay factor applied to recipe-derived aspects: each derivation layer
      * multiplies aspect amounts by this factor (e.g. 0.1 = 90% decay, keep 10%), with a floor of 1 per aspect.
@@ -758,7 +745,7 @@ public class AspectUtils {
                 AspectUtils.collectInputsFromObject(result, inputs);
                 if (!inputs.isEmpty()) return inputs;
             } catch (final Exception e) {
-                ModFileLogger.warn(
+                ModFileLogger.debug(
                     "[ThaumicAllAspect] Error calling " + name
                         + "() on recipe "
                         + recipe.getClass()
@@ -789,7 +776,7 @@ public class AspectUtils {
                     AspectUtils.collectInputsFromObject(val, inputs);
                     if (!inputs.isEmpty()) return inputs;
                 } catch (final Exception e) {
-                    ModFileLogger.warn(
+                    ModFileLogger.debug(
                         "[ThaumicAllAspect] Error reading field " + f.getName()
                             + " from recipe "
                             + recipe.getClass()
