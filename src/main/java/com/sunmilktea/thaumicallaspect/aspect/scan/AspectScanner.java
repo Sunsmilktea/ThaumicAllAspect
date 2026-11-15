@@ -276,22 +276,18 @@ public class AspectScanner {
                     try {
                         final ItemStack stack = new ItemStack(item, 1, meta);
 
-                        // Check TC registration and pre-populate CACHE in one step
-                        // (avoids calling getObjectAspects twice — once in hasAspect, once for cache).
-                        // 一步完成 TC 注册检查和缓存预填充
-                        // （避免调用两次 getObjectAspects——hasAspect 中一次，缓存一次）。
-                        if (ThaumcraftApi.exists(stack.getItem(), stack.getItemDamage())) {
-                            final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
-                            if (AspectUtils.hasPositiveAspectAmount(existing)) {
-                                AspectUtils.CACHE.put(
-                                    AspectUtils.key(stack),
-                                    AspectUtils.ensureMinOnePerAspect(existing)
-                                        .copy());
-                                hasAny = true;
-                                AspectUtils.statAlreadyHad++;
-                                modSkip++;
-                                continue;
-                            }
+                        // Respect any pre-existing registration (Thaumcraft or ModTweaker), including wildcard meta.
+                        // 尊重任何已存在的注册（Thaumcraft 或 ModTweaker），包括通配 meta。
+                        final AspectList existing = AspectUtils.getRegisteredAspects(stack);
+                        if (AspectUtils.hasPositiveAspectAmount(existing)) {
+                            AspectUtils.CACHE.put(
+                                AspectUtils.key(stack),
+                                AspectUtils.ensureMinOnePerAspect(existing)
+                                    .copy());
+                            hasAny = true;
+                            AspectUtils.statAlreadyHad++;
+                            modSkip++;
+                            continue;
                         }
 
                         AspectUtils.lastDerivePath = "";
@@ -466,18 +462,16 @@ public class AspectScanner {
                 try {
                     // Re-check: item may have been registered by a previous pass
                     // 重新检查：物品可能已在之前的轮次中被注册
-                    if (ThaumcraftApi.exists(stack.getItem(), stack.getItemDamage())) {
-                        final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
-                        if (AspectUtils.hasPositiveAspectAmount(existing)) {
-                            AspectUtils.CACHE.put(
-                                AspectUtils.key(stack),
-                                AspectUtils.ensureMinOnePerAspect(existing)
-                                    .copy());
-                            passReg++;
-                            AspectUtils.statAlreadyHad++;
-                            AspectUtils.FAILED_IDS.remove(id);
-                            continue;
-                        }
+                    final AspectList existing = AspectUtils.getRegisteredAspects(stack);
+                    if (AspectUtils.hasPositiveAspectAmount(existing)) {
+                        AspectUtils.CACHE.put(
+                            AspectUtils.key(stack),
+                            AspectUtils.ensureMinOnePerAspect(existing)
+                                .copy());
+                        passReg++;
+                        AspectUtils.statAlreadyHad++;
+                        AspectUtils.FAILED_IDS.remove(id);
+                        continue;
                     }
 
                     AspectUtils.lastDerivePath = "";
@@ -621,7 +615,7 @@ public class AspectScanner {
                     for (int meta = 0; 15 >= meta; meta++) {
                         final ItemStack stack = new ItemStack(item, 1, meta);
                         if (AspectUtils.hasAspect(stack)) {
-                            final AspectList existing = ThaumcraftApiHelper.getObjectAspects(stack);
+                            final AspectList existing = AspectUtils.getRegisteredAspects(stack);
                             if (AspectUtils.hasPositiveAspectAmount(existing)) {
                                 AspectUtils.CACHE.put(AspectUtils.key(stack), existing.copy());
                             }
@@ -848,7 +842,9 @@ public class AspectScanner {
             ModFileLogger
                 .scanSummary(tr("[Failures]") + " " + tr("The following items/blocks/fluids still have no aspects:"));
             for (final String id : AspectUtils.FAILED_IDS) {
-                ModFileLogger.warn(" - " + id);
+                if (ModFileLogger.getScanLogLevel() < 1) {
+                    ModFileLogger.warn(" - " + id);
+                }
                 ModFileLogger.scanSummary(" - " + id);
             }
             ModFileLogger.appendFailureIds(
@@ -1308,14 +1304,23 @@ public class AspectScanner {
         if (null == tcRecipes) return;
         for (final Object obj : tcRecipes) {
             ItemStack tcOutput = null;
-
-            if (obj instanceof IArcaneRecipe) {
-                tcOutput = ((IArcaneRecipe) obj).getRecipeOutput();
-            } else if (obj instanceof InfusionRecipe) {
-                final Object infOut = ((InfusionRecipe) obj).getRecipeOutput();
-                if (infOut instanceof ItemStack) tcOutput = (ItemStack) infOut;
-            } else if (obj instanceof CrucibleRecipe) {
-                tcOutput = ((CrucibleRecipe) obj).getRecipeOutput();
+            try {
+                if (obj instanceof IArcaneRecipe) {
+                    tcOutput = ((IArcaneRecipe) obj).getRecipeOutput();
+                } else if (obj instanceof InfusionRecipe) {
+                    final Object infOut = ((InfusionRecipe) obj).getRecipeOutput();
+                    if (infOut instanceof ItemStack) tcOutput = (ItemStack) infOut;
+                } else if (obj instanceof CrucibleRecipe) {
+                    tcOutput = ((CrucibleRecipe) obj).getRecipeOutput();
+                }
+            } catch (final Throwable t) {
+                // A single broken Thaumcraft recipe must never abort the whole scan.
+                // 单个损坏的神秘时代配方绝不应中断整个扫描。
+                ModFileLogger.debug(
+                    "[ThaumicAllAspect] Skipping broken TC recipe in index: " + (null != t.getMessage() ? t.getMessage()
+                        : t.getClass()
+                            .getSimpleName()));
+                continue;
             }
 
             if (null == tcOutput || null == tcOutput.getItem()) continue;

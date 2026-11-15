@@ -170,51 +170,61 @@ public class RecipeFirstAspectPipeline {
             for (final Map.Entry<net.minecraft.item.Item, List<Object>> e : AspectUtils.TC_RECIPE_INDEX.entrySet()) {
                 if (null == e.getValue()) continue;
                 for (final Object obj : e.getValue()) {
-                    List<List<ItemStack>> inputs = null;
-                    ItemStack recipeOut = null;
+                    try {
+                        List<List<ItemStack>> inputs = null;
+                        ItemStack recipeOut = null;
 
-                    if (obj instanceof ShapedArcaneRecipe) {
-                        final ShapedArcaneRecipe sar = (ShapedArcaneRecipe) obj;
-                        recipeOut = sar.getRecipeOutput();
-                        inputs = new ArrayList<>();
-                        for (final Object o : sar.getInput()) {
-                            inputs.add(AspectUtils.resolveOreInput(o));
-                        }
-                    } else if (obj instanceof ShapelessArcaneRecipe) {
-                        final ShapelessArcaneRecipe slr = (ShapelessArcaneRecipe) obj;
-                        recipeOut = slr.getRecipeOutput();
-                        inputs = new ArrayList<>();
-                        for (final Object o : slr.getInput()) {
-                            inputs.add(AspectUtils.resolveOreInput(o));
-                        }
-                    } else if (obj instanceof InfusionRecipe) {
-                        final InfusionRecipe ir = (InfusionRecipe) obj;
-                        final Object irOut = ir.getRecipeOutput();
-                        if (!(irOut instanceof ItemStack)) continue;
-                        recipeOut = (ItemStack) irOut;
-                        inputs = new ArrayList<>();
-                        final ItemStack center = ir.getRecipeInput();
-                        if (null != center)
-                            inputs.add(Collections.singletonList(AspectUtils.normalizeForLookup(center.copy())));
-                        final ItemStack[] components = ir.getComponents();
-                        if (null != components) {
-                            for (final ItemStack c : components) {
-                                if (null != c)
-                                    inputs.add(Collections.singletonList(AspectUtils.normalizeForLookup(c.copy())));
+                        if (obj instanceof ShapedArcaneRecipe) {
+                            final ShapedArcaneRecipe sar = (ShapedArcaneRecipe) obj;
+                            recipeOut = sar.getRecipeOutput();
+                            inputs = new ArrayList<>();
+                            for (final Object o : sar.getInput()) {
+                                inputs.add(AspectUtils.resolveOreInput(o));
                             }
+                        } else if (obj instanceof ShapelessArcaneRecipe) {
+                            final ShapelessArcaneRecipe slr = (ShapelessArcaneRecipe) obj;
+                            recipeOut = slr.getRecipeOutput();
+                            inputs = new ArrayList<>();
+                            for (final Object o : slr.getInput()) {
+                                inputs.add(AspectUtils.resolveOreInput(o));
+                            }
+                        } else if (obj instanceof InfusionRecipe) {
+                            final InfusionRecipe ir = (InfusionRecipe) obj;
+                            final Object irOut = ir.getRecipeOutput();
+                            if (!(irOut instanceof ItemStack)) continue;
+                            recipeOut = (ItemStack) irOut;
+                            inputs = new ArrayList<>();
+                            final ItemStack center = ir.getRecipeInput();
+                            if (null != center)
+                                inputs.add(Collections.singletonList(AspectUtils.normalizeForLookup(center.copy())));
+                            final ItemStack[] components = ir.getComponents();
+                            if (null != components) {
+                                for (final ItemStack c : components) {
+                                    if (null != c)
+                                        inputs.add(Collections.singletonList(AspectUtils.normalizeForLookup(c.copy())));
+                                }
+                            }
+                        } else if (obj instanceof CrucibleRecipe) {
+                            final CrucibleRecipe cr = (CrucibleRecipe) obj;
+                            recipeOut = cr.getRecipeOutput();
+                            inputs = new ArrayList<>();
+                            final Object cat = cr.catalyst;
+                            if (null != cat) inputs.add(AspectUtils.resolveOreInput(cat));
                         }
-                    } else if (obj instanceof CrucibleRecipe) {
-                        final CrucibleRecipe cr = (CrucibleRecipe) obj;
-                        recipeOut = cr.getRecipeOutput();
-                        inputs = new ArrayList<>();
-                        final Object cat = cr.catalyst;
-                        if (null != cat) inputs.add(AspectUtils.resolveOreInput(cat));
-                    }
 
-                    if (null == recipeOut || null == recipeOut.getItem() || null == inputs || inputs.isEmpty())
-                        continue;
-                    final ItemStack normOut = AspectUtils.normalizeForLookup(recipeOut);
-                    out.add(new RecipeRecord(normOut, inputs));
+                        if (null == recipeOut || null == recipeOut.getItem() || null == inputs || inputs.isEmpty())
+                            continue;
+                        final ItemStack normOut = AspectUtils.normalizeForLookup(recipeOut);
+                        out.add(new RecipeRecord(normOut, inputs));
+                    } catch (final Throwable t) {
+                        // One malformed TC recipe must not abort the recipe-first pipeline.
+                        // 单个格式异常的神秘时代配方不应中断配方优先管线。
+                        ModFileLogger.debug(
+                            "[ThaumicAllAspect] Skipping broken TC recipe in pipeline: "
+                                + (null != t.getMessage() ? t.getMessage()
+                                    : t.getClass()
+                                        .getSimpleName()));
+                    }
                 }
             }
         }

@@ -73,6 +73,10 @@ public final class ModFileLogger {
         scanLogLevel = level;
     }
 
+    public static int getScanLogLevel() {
+        return scanLogLevel;
+    }
+
     public static void info(String msg) {
         LOGGER.info(msg);
     }
@@ -181,6 +185,7 @@ public final class ModFileLogger {
      * 每行输出格式：{@code ItemID@meta = aspect1=amount, aspect2=amount, ...}
      */
     public static void writeCacheFile(Map<String, AspectList> cache) {
+        if (scanLogLevel >= 1) return;
         File dir = new File("logs");
         if (!dir.exists()) dir.mkdirs();
         writeCacheFile(cache, new File(dir, "ThaumicAllAspect-cache.cfg"), true);
@@ -268,7 +273,7 @@ public final class ModFileLogger {
      * 首先写入一行标题（如描述失败类别），随后每个 ID 以 "- " 为前缀逐行写入。
      */
     public static void appendFailureIds(String header, Collection<String> ids) {
-        if (ids == null || ids.isEmpty()) {
+        if (scanLogLevel >= 1 || ids == null || ids.isEmpty()) {
             return;
         }
         File dir = new File("logs");

@@ -9,6 +9,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -244,9 +245,22 @@ public class AspectUtils {
      * Checks whether TC already has non-empty aspects registered for this stack. / 检查TC是否已为此物品注册非空要素。
      */
     public static boolean hasAspect(final ItemStack stack) {
-        if (!ThaumcraftApi.exists(stack.getItem(), stack.getItemDamage())) return false;
+        return AspectUtils.hasPositiveAspectAmount(AspectUtils.getRegisteredAspects(stack));
+    }
+
+    /**
+     * Returns the aspects Thaumcraft (or any mod, e.g. ModTweaker) has already registered for this stack,
+     * covering all three registration forms: exact meta, an int[] meta range, and wildcard
+     * (OreDictionary.WILDCARD_VALUE). Returns null when nothing is registered.
+     * <p>
+     * 返回 Thaumcraft（或任何模组，如 ModTweaker）已为该物品注册的要素，
+     * 覆盖全部三种注册形式：精确 meta、int[] meta 区间、以及通配（OreDictionary.WILDCARD_VALUE）。无注册时返回 null。
+     */
+    public static AspectList getRegisteredAspects(final ItemStack stack) {
+        if (null == stack || null == stack.getItem()) return null;
         final AspectList al = ThaumcraftApiHelper.getObjectAspects(stack);
-        return AspectUtils.hasPositiveAspectAmount(al);
+        if (AspectUtils.hasPositiveAspectAmount(al)) return al;
+        return ThaumcraftApi.objectTags.get(Arrays.asList(stack.getItem(), OreDictionary.WILDCARD_VALUE));
     }
 
     /**

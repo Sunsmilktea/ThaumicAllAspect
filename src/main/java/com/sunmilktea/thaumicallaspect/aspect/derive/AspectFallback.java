@@ -23,10 +23,10 @@ import thaumcraft.api.aspects.AspectList;
  *
  * <ol>
  * <li>{@link #deriveFromType} — Infers aspects from the item's Java class hierarchy and block material.
- * Handles ItemBlock (checks Material: rock/ground/iron and specific vanilla blocks),
- * ItemArmor, ItemTool/ItemHoe/ItemShears, and food items (ItemFood or eat/drink action).
+ * Handles ItemBlock (a complete, language-independent Material→aspect mapping plus specific
+ * vanilla blocks), ItemArmor, ItemTool/ItemHoe/ItemShears, and food items (ItemFood or eat/drink action).
  * 根据物品的 Java 类继承关系和方块材质推断要素。
- * 处理 ItemBlock（检查 Material：rock/ground/iron 及特定原版方块）、
+ * 处理 ItemBlock（完整的、与语言无关的 Material→要素映射，外加特定原版方块）、
  * ItemArmor、ItemTool/ItemHoe/ItemShears，以及食物物品（ItemFood 或 eat/drink 动作）。</li>
  *
  * <li>{@link #applySpecialRules} — Enforces minimum aspect guarantees for specific item categories,
@@ -52,10 +52,12 @@ public class AspectFallback {
      * Resolution order (first match wins, returns immediately):
      * 解析顺序（首次匹配即返回）：
      * <ol>
-     * <li><b>ItemBlock</b> — First checks specific vanilla blocks (log/planks → arbor=8).
-     * Then checks block Material: rock/ground/iron → terra+perditio, iron/rock → metallum.
-     * ItemBlock — 首先检查特定原版方块（原木/木板 → arbor=8）。
-     * 然后检查方块 Material：rock/ground/iron → terra+perditio，iron/rock → metallum。</li>
+     * <li><b>ItemBlock</b> — First checks specific vanilla blocks (log/planks → arbor=8, quartz → vitreus).
+     * Then maps the block Material via {@link #applyMaterialAspects}: every vanilla Material gets a
+     * distinct profile (rock → terra+perditio, iron/anvil → metallum+terra, and so on).
+     * ItemBlock — 首先检查特定原版方块（原木/木板 → arbor=8、石英 → vitreus）。
+     * 然后通过 {@link #applyMaterialAspects} 映射方块 Material：每种原版材质都有独特的要素组合
+     * （rock → terra+perditio，iron/anvil → metallum+terra，等等）。</li>
      * <li><b>ItemArmor</b> — Always assigns tutamen=8 (protection) + metallum=4.
      * ItemArmor — 始终分配 tutamen=8（防护）+ metallum=4。</li>
      * <li><b>Tools</b> — Checks instanceof ItemTool/ItemHoe/ItemShears first. If that fails,
@@ -106,84 +108,12 @@ public class AspectFallback {
                     return al;
                 }
 
-                // Hard mineral materials: rock, ground, iron → terra + perditio
-                // 硬质矿物材料：岩石、地面、铁 → terra + perditio
-                if (m == Material.rock || m == Material.ground || m == Material.iron) {
-                    final Aspect ter = AspectUtils.getAspect("terra");
-                    final Aspect per = AspectUtils.getAspect("perditio");
-                    if (null != ter) al.add(ter, 4);
-                    if (null != per) al.add(per, 2);
-                }
-                if (m == Material.iron || m == Material.rock) {
-                    final Aspect met = AspectUtils.getAspect("metallum");
-                    if (null != met) al.add(met, 4);
-                }
-
-                // Grass/dirt-like blocks: Material.grass (grass block, path block) → terra + herba
-                // 草地/泥土类方块：Material.grass（草方块、草径方块）→ terra + herba
-                if (m == Material.grass) {
-                    final Aspect ter = AspectUtils.getAspect("terra");
-                    final Aspect herb = AspectUtils.getAspect("herba");
-                    if (null != ter) al.add(ter, 4);
-                    if (null != herb) al.add(herb, 2);
-                }
-
-                // Sand blocks: Material.sand → terra + perditio (loose, crumbly earth)
-                // 沙子方块：Material.sand → terra + perditio（松散、易碎的大地）
-                if (m == Material.sand) {
-                    final Aspect ter = AspectUtils.getAspect("terra");
-                    final Aspect per = AspectUtils.getAspect("perditio");
-                    if (null != ter) al.add(ter, 4);
-                    if (null != per) al.add(per, 3);
-                }
-
-                // Clay blocks: Material.clay → terra + aqua (wet earth)
-                // 黏土方块：Material.clay → terra + aqua（湿土）
-                if (m == Material.clay) {
-                    final Aspect ter = AspectUtils.getAspect("terra");
-                    final Aspect aqu = AspectUtils.getAspect("aqua");
-                    if (null != ter) al.add(ter, 4);
-                    if (null != aqu) al.add(aqu, 2);
-                }
-
-                // Snow/ice blocks: Material.snow, Material.ice, Material.craftedSnow → gelum + aqua
-                // 雪/冰方块：Material.snow、Material.ice、Material.craftedSnow → gelum + aqua
-                if (m == Material.snow || m == Material.ice || m == Material.craftedSnow) {
-                    final Aspect gel = AspectUtils.getAspect("gelum");
-                    final Aspect aqu = AspectUtils.getAspect("aqua");
-                    if (null != gel) al.add(gel, 4);
-                    if (null != aqu) al.add(aqu, 2);
-                }
-
-                // Wooden blocks: Material.wood → arbor
-                // 木质方块：Material.wood → arbor
-                if (m == Material.wood) {
-                    final Aspect arbor = AspectUtils.getAspect("arbor");
-                    if (null != arbor) al.add(arbor, 4);
-                }
-
-                // Plants/vines: Material.plants, Material.vine → herba + victus
-                // 植物/藤蔓：Material.plants、Material.vine → herba + victus
-                if (m == Material.plants || m == Material.vine) {
-                    final Aspect herb = AspectUtils.getAspect("herba");
-                    final Aspect vic = AspectUtils.getAspect("victus");
-                    if (null != herb) al.add(herb, 4);
-                    if (null != vic) al.add(vic, 2);
-                }
-
-                // Cloth/sponge: Material.cloth → pannus; Material.sponge → aqua + vacuos
-                // 布料/海绵：Material.cloth → pannus；Material.sponge → aqua + vacuos
-                if (m == Material.cloth) {
-                    final Aspect pan = AspectUtils.getAspect("pannus");
-                    if (null != pan) al.add(pan, 4);
-                }
-                if (m == Material.sponge) {
-                    final Aspect aqu = AspectUtils.getAspect("aqua");
-                    final Aspect vac = AspectUtils.getAspect("vacuos");
-                    if (null != aqu) al.add(aqu, 4);
-                    if (null != vac) al.add(vac, 3);
-                }
-
+                // Complete, language-independent Material→aspect mapping. Each vanilla Material
+                // gets a distinct, semantically-correct profile; no material silently collapses
+                // onto a generic "terra-perditio-metallum". Only true metals (iron/anvil) get metallum.
+                // 完整的、与语言无关的 Material→要素映射。每种原版材质都有独特且语义正确的要素组合；
+                // 没有材质会悄无声息地坍缩到通用的"terra-perditio-metallum"。只有真正的金属（iron/anvil）才获得 metallum。
+                applyMaterialAspects(m, al);
                 return AspectUtils.hasPositiveAspectAmount(al) ? al : null;
             }
 
@@ -224,6 +154,122 @@ public class AspectFallback {
         } catch (final Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Maps a block {@link Material} to a semantically-correct set of aspects.
+     * 将方块 {@link Material} 映射为一组语义正确的要素。
+     *
+     * <p>
+     * Language-independent (works for every mod's blocks) and exhaustive over vanilla's
+     * {@link Material} values, so no material silently collapses onto a single generic profile.
+     * Each "earth" material expresses itself differently — grass adds herba, sand/clay add
+     * perditio/aqua — and only genuine metal materials ({@code iron}/{@code anvil}) get metallum.
+     * 与语言无关（适用于所有模组的方块），并穷举原版 {@link Material} 值，
+     * 因此没有材质会悄无声息地坍缩到单一通用要素组合上。每种"土"材质都以不同方式表达 —
+     * grass 增加 herba，sand/clay 增加 perditio/aqua — 只有真正的金属材质（iron/anvil）才获得 metallum。
+     *
+     * @param m  the block material
+     * @param al the list to mutate in place (aspects are appended)
+     * @return true if at least one aspect was added
+     */
+    private static boolean applyMaterialAspects(final Material m, final AspectList al) {
+        if (m == Material.air) {
+            return false; // 空气：无实体要素
+        }
+        if (m == Material.grass) {
+            addFb(al, "terra", 4);
+            addFb(al, "herba", 2);
+        } else if (m == Material.ground) {
+            addFb(al, "terra", 4);
+            addFb(al, "perditio", 2);
+        } else if (m == Material.sand) {
+            addFb(al, "terra", 4);
+            addFb(al, "perditio", 3);
+        } else if (m == Material.clay) {
+            addFb(al, "terra", 4);
+            addFb(al, "aqua", 2);
+        } else if (m == Material.rock) {
+            // Stone is earth, not metal — fixing the old terra+perditio+metallum collapse.
+            // 石头是大地，不是金属 — 修复旧的 terra+perditio+metallum 坍缩。
+            addFb(al, "terra", 4);
+            addFb(al, "perditio", 2);
+        } else if (m == Material.iron || m == Material.anvil) {
+            addFb(al, "metallum", 4);
+            addFb(al, "terra", 2);
+        } else if (m == Material.wood) {
+            addFb(al, "arbor", 4);
+        } else if (m == Material.leaves) {
+            addFb(al, "herba", 3);
+        } else if (m == Material.plants) {
+            addFb(al, "herba", 4);
+            addFb(al, "victus", 2);
+        } else if (m == Material.vine) {
+            addFb(al, "herba", 3);
+            addFb(al, "victus", 2);
+        } else if (m == Material.cactus) {
+            addFb(al, "herba", 3);
+            addFb(al, "telum", 2);
+        } else if (m == Material.gourd) {
+            addFb(al, "herba", 3);
+            addFb(al, "fames", 1);
+        } else if (m == Material.cloth) {
+            addFb(al, "pannus", 4);
+        } else if (m == Material.carpet) {
+            addFb(al, "pannus", 3);
+        } else if (m == Material.web) {
+            addFb(al, "pannus", 2);
+            addFb(al, "vinculum", 2);
+        } else if (m == Material.sponge) {
+            addFb(al, "aqua", 4);
+            addFb(al, "vacuos", 3);
+        } else if (m == Material.water) {
+            addFb(al, "aqua", 4);
+        } else if (m == Material.lava) {
+            addFb(al, "ignis", 4);
+            addFb(al, "terra", 2);
+        } else if (m == Material.fire) {
+            addFb(al, "ignis", 4);
+        } else if (m == Material.ice) {
+            addFb(al, "gelum", 4);
+            addFb(al, "aqua", 2);
+        } else if (m == Material.packedIce) {
+            addFb(al, "gelum", 4);
+            addFb(al, "aqua", 1);
+        } else if (m == Material.snow || m == Material.craftedSnow) {
+            addFb(al, "gelum", 4);
+            addFb(al, "aqua", 2);
+        } else if (m == Material.glass) {
+            addFb(al, "vitreus", 4);
+            addFb(al, "terra", 1);
+        } else if (m == Material.circuits) {
+            addFb(al, "potentia", 4);
+            addFb(al, "machina", 2);
+        } else if (m == Material.redstoneLight) {
+            addFb(al, "potentia", 4);
+            addFb(al, "lux", 2);
+        } else if (m == Material.tnt) {
+            addFb(al, "ignis", 4);
+            addFb(al, "perditio", 2);
+        } else if (m == Material.piston) {
+            addFb(al, "machina", 3);
+            addFb(al, "metallum", 2);
+        } else if (m == Material.portal) {
+            addFb(al, "alienis", 4);
+            addFb(al, "iter", 2);
+        } else if (m == Material.cake) {
+            addFb(al, "fames", 4);
+            addFb(al, "victus", 2);
+        } else if (m == Material.coral) {
+            addFb(al, "herba", 2);
+            addFb(al, "aqua", 2);
+        } else if (m == Material.dragonEgg) {
+            addFb(al, "potentia", 4);
+            addFb(al, "alienis", 2);
+        } else {
+            return false;
+        }
+        return true;
     }
 
     /**

@@ -19,6 +19,7 @@ import thaumcraft.api.aspects.AspectList;
  * Loads user-defined fallbacks from config/ThaumicAllAspect/:
  * - keyword-fallback.cfg: keyword=aspect1=amt1,aspect2=amt2 (name contains keyword → add aspects)
  * - item-fallback.cfg: modid:name@meta=aspect1=amt1,... or fluid:modid:name=... (exact key → use aspects)
+ * - entity-fallback.cfg: EntityID=aspect1=amt1,... (exact EntityList key → override entity aspects)
  */
 public final class FallbackConfig {
 
@@ -28,6 +29,8 @@ public final class FallbackConfig {
     static Map<String, AspectList> keywordFallback = new HashMap<>();
     /** Key (registryName@meta or fluid:modid:name) → AspectList. Direct assignment before derivation. */
     static Map<String, AspectList> itemFallback = new HashMap<>();
+    /** Entity id (EntityList string key, e.g. "Slime") → AspectList. Modpack override for entity aspects. */
+    static Map<String, AspectList> entityFallback = new HashMap<>();
 
     /**
      * Loads both config files. Call once at scan start (when no cache or when building indices).
@@ -36,13 +39,17 @@ public final class FallbackConfig {
     public static void load(File configDir) {
         keywordFallback.clear();
         itemFallback.clear();
+        entityFallback.clear();
         if (configDir == null) configDir = new File(CONFIG_SUBDIR);
         File kwFile = new File(configDir, "keyword-fallback.cfg");
         File itemFile = new File(configDir, "item-fallback.cfg");
+        File entityFile = new File(configDir, "entity-fallback.cfg");
         ensureKeywordFallbackExists(kwFile);
         ensureItemFallbackExists(itemFile);
+        ensureEntityFallbackExists(entityFile);
         loadKeywordFallback(kwFile);
         loadItemFallback(itemFile);
+        loadEntityFallback(entityFile);
     }
 
     private static void ensureKeywordFallbackExists(File file) {
@@ -79,6 +86,27 @@ public final class FallbackConfig {
         } catch (IOException ignored) {}
     }
 
+    private static void ensureEntityFallbackExists(File file) {
+        if (file.exists()) return;
+        try {
+            file.getParentFile()
+                .mkdirs();
+            try (BufferedWriter w = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8))) {
+                w.write("# ThaumicAllAspect entity fallback. One line: EntityID=aspect1=amount1,aspect2=amount2");
+                w.newLine();
+                w.write("# EntityID is the EntityList string key (e.g. Slime, Zombie, Cow, EntityHorse, Ozelot).");
+                w.newLine();
+                w.write("# Uncommenting a line OVERRIDES the default Thaumcraft aspects for that entity.");
+                w.newLine();
+                w.write("# The mod itself never ships active lines here; customize your own pack as needed.");
+                w.newLine();
+                w.write("# Example: Slime=limus=3,aqua=3");
+                w.newLine();
+            }
+        } catch (IOException ignored) {}
+    }
+
     /** Returns a copy of the aspect list for this key if in item-fallback config, else null. */
     public static AspectList getItemFallback(String key) {
         AspectList al = itemFallback.get(key);
@@ -88,6 +116,12 @@ public final class FallbackConfig {
     /** Returns a copy of the aspect list for this fluid key (fluid:modid:name) if in config, else null. */
     public static AspectList getFluidFallback(String fluidKey) {
         AspectList al = itemFallback.get(fluidKey);
+        return al != null ? al.copy() : null;
+    }
+
+    /** Returns a copy of the aspect list for this entity id if in entity-fallback config, else null. */
+    public static AspectList getEntityFallback(String entityId) {
+        AspectList al = entityFallback.get(entityId);
         return al != null ? al.copy() : null;
     }
 
@@ -178,6 +212,28 @@ public final class FallbackConfig {
             }
         } catch (IOException ex) {
             ModFileLogger.warn("[ThaumicAllAspect] Error reading item-fallback.cfg: " + ex.getMessage());
+        }
+    }
+
+    private static void loadEntityFallback(File file) {
+        if (file == null || !file.isFile()) return;
+        try (BufferedReader r = new BufferedReader(
+            new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int eq = line.indexOf('=');
+                if (eq <= 0) continue;
+                String entityId = line.substring(0, eq)
+                    .trim();
+                String val = line.substring(eq + 1)
+                    .trim();
+                AspectList al = AspectUtils.ensureMinOnePerAspect(AspectUtils.parseAspectListPublic(val));
+                if (al != null && al.size() > 0) entityFallback.put(entityId, al);
+            }
+        } catch (IOException ex) {
+            ModFileLogger.warn("[ThaumicAllAspect] Error reading entity-fallback.cfg: " + ex.getMessage());
         }
     }
 }

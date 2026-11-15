@@ -14,6 +14,7 @@ import net.minecraftforge.common.config.Configuration;
 import com.sunmilktea.thaumicallaspect.aspect.derive.AspectUtils;
 import com.sunmilktea.thaumicallaspect.aspect.scan.EntityAspectHelper;
 import com.sunmilktea.thaumicallaspect.aspect.scan.ItemBlockAspectHelper;
+import com.sunmilktea.thaumicallaspect.config.FallbackConfig;
 import com.sunmilktea.thaumicallaspect.logging.ModFileLogger;
 
 import cpw.mods.fml.common.Mod;
@@ -112,7 +113,8 @@ public class ThaumicAllAspect {
                 0,
                 0,
                 2,
-                "0=full scan log, 1=summary only (faster), 2=off (fastest). Reduces disk I/O during load.");
+                "0=full scan log + cache/failure dumps, 1=summary only (faster), 2=off (fastest, minimal log). "
+                    + "Higher values shrink the log and reduce disk I/O during load.");
             skipDiagnosticDumps = cfg.getBoolean(
                 "skipDiagnosticDumps",
                 "performance",
@@ -160,7 +162,17 @@ public class ThaumicAllAspect {
     public void onLoadComplete(FMLLoadCompleteEvent event) {
         ModFileLogger
             .info("[ThaumicAllAspect] " + tr("All mods loaded, starting full aspect scan for items/blocks/fluids"));
-        ItemBlockAspectHelper.scanAndAssignAspects();
+        try {
+            ItemBlockAspectHelper.scanAndAssignAspects();
+        } catch (final Throwable t) {
+            // Final safety net: a scan failure must never crash the game at LoadComplete.
+            // 最终保护网：扫描失败绝不应在 LoadComplete 阶段导致游戏崩溃。
+            ModFileLogger.warn(
+                "[ThaumicAllAspect] " + tr("Aspect scan failed but game will continue: ")
+                    + (null != t.getMessage() ? t.getMessage()
+                        : t.getClass()
+                            .getName()));
+        }
 
         ModFileLogger.info("[ThaumicAllAspect] " + tr("Starting entity aspect completion"));
         @SuppressWarnings("unchecked")
@@ -169,6 +181,23 @@ public class ThaumicAllAspect {
             String id = e.getKey();
             Class<? extends Entity> cls = e.getValue();
             if (id == null || cls == null || !EntityLivingBase.class.isAssignableFrom(cls)) {
+                continue;
+            }
+
+            // Modpack override from entity-fallback.cfg wins over Thaumcraft's own defaults.
+            AspectList override = FallbackConfig.getEntityFallback(id);
+            if (override != null && override.size() > 0) {
+                boolean replaced = false;
+                for (EntityTags tag : ThaumcraftApi.scanEntities) {
+                    if (id.equals(tag.entityName)) {
+                        tag.aspects = override;
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced) {
+                    ThaumcraftApi.registerEntityTag(id, override);
+                }
                 continue;
             }
 
@@ -197,7 +226,9 @@ public class ThaumicAllAspect {
         if (!failedEntityIds.isEmpty()) {
             ModFileLogger.warn("[ThaumicAllAspect] " + tr("The following entities still have no aspects:"));
             for (String id : failedEntityIds) {
-                ModFileLogger.warn("[ThaumicAllAspect] - " + id);
+                if (ModFileLogger.getScanLogLevel() < 1) {
+                    ModFileLogger.warn("[ThaumicAllAspect] - " + id);
+                }
             }
         }
 
